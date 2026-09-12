@@ -14,12 +14,12 @@ on:
       force:
         description: 'Force dispatch regardless of local timezone window'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       dry_run:
         description: 'Dry run (simulate without sending)'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 permissions:
