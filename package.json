@@ -1,0 +1,28 @@
+{
+  "name": "kachmo-outreach-engine",
+  "version": "1.0.0",
+  "description": "Kachmo Studios cold outreach email dispatch and tracking engine",
+  "type": "module",
+  "scripts": {
+    "send:titan": "tsx scripts/send-titan-smtp.ts",
+    "send:test": "tsx scripts/send-titan-smtp.ts --test",
+    "draft:titan": "tsx scripts/create-titan-drafts.ts",
+    "dispatch:cron": "tsx scripts/cron-dispatch.ts",
+    "dispatch:dry": "tsx scripts/cron-dispatch.ts --dry-run"
+  },
+  "author": "Dev Jaiswal (Kachmo Studios)",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "imapflow": "^2.0.2",
+    "nodemailer": "^10.0.9"
+  },
+  "devDependencies": {
+    "@types/imapflow": "^1.0.23",
+    "@types/node": "^20.12.7",
+    "@types/nodemailer": "^8.0.1",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  }
+}
