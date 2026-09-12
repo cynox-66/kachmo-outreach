@@ -13,16 +13,17 @@
 
 ### Status State Machine
 Every lead in the ledger exists in exactly one state:
-1. `DRAFTED`: Created in Titan Mail Drafts via `npm run draft:titan`.
-2. `SENT`: Manually reviewed and dispatched from Titan Mail.
-3. `FOLLOW_UP_DUE`: Exactly 72 hours have elapsed since `SENT` with zero response.
-4. `FOLLOWED_UP`: Bump email sent.
-5. `REPLIED_WARM`: Recipient responded with interest, questions, or asking for rates.
-6. `REPLIED_NOT_NOW`: Positive/neutral response noting no immediate need; logged for 60-day check-in.
-7. `REPLIED_NO`: Explicit "not interested" or unsubscribe; immediately removed.
-8. `CALL_BOOKED`: 15-minute intro/scoping call scheduled on calendar.
-9. `PROPOSAL_SENT`: Scoped sprint agreement or launch partner proposal sent.
-10. `WON`: Contract signed + 50% deposit received ($3,000–$6,000+ / ₹2.5L–₹5L+).
+1. `DRAFTED`: Created in Titan Mail Drafts.
+2. `SCHEDULED`: Staged in `scheduled-queue.json` for autonomous cloud dispatch via GitHub Actions.
+3. `SENT`: Dispatched directly via Titan SMTP by the GitHub Actions cloud runner or CLI sender.
+4. `FOLLOW_UP_DUE`: Exactly 72 hours have elapsed since `SENT` with zero response.
+5. `FOLLOWED_UP`: Bump email sent.
+6. `REPLIED_WARM`: Recipient responded with interest, questions, or asking for rates.
+7. `REPLIED_NOT_NOW`: Positive/neutral response noting no immediate need; logged for 60-day check-in.
+8. `REPLIED_NO`: Explicit "not interested" or unsubscribe; immediately removed.
+9. `CALL_BOOKED`: 15-minute intro/scoping call scheduled on calendar.
+10. `PROPOSAL_SENT`: Scoped sprint agreement or launch partner proposal sent.
+11. `WON`: Contract signed + 50% deposit received ($3,000–$6,000+ / ₹2.5L–₹5L+).
 
 ---
 
