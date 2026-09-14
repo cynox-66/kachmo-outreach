@@ -119,24 +119,24 @@ When a reply lands in Titan Mail:
 
 | # | Target Name | Recipient Contact | Archetype | Sent Date | Follow-up Due | Current Status | Thread Notes & Conversion Outcome |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **002** | **Slice Design** | `hello@slicedesign.co.uk` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Biotiful packaging & clean typographic identity. Subject: Style A. Scheduled for Mon ~9:00 AM (Europe/London). |
-| **005** | **LMPP Studio** | `info@lmpp.studio` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Luxury editorial work & identity restraint. Subject: Style B. Scheduled for Mon ~9:00 AM (Europe/London). |
-| **009** | **Other Means** | `us@othermeans.us` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Cultural & institutional typography benchmark. Subject: Style A. Scheduled for Mon ~9:00 AM (America/New_York). |
-| **012** | **Shawn Scott Studio** | `hello@shawnscott.studio` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Packaging systems & typographic detail craft. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Los_Angeles). |
-| **019** | **Violet Office** | `info@violetoffice.com` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Intersection between physical spaces and brand. Subject: Style A. Scheduled for Mon ~9:00 AM (Europe/Berlin). |
-| **023** | **We Are Colette** | `business@wearecolette.com` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Art direction & visual narrative storytelling. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Toronto). |
-| **024** | **Lolo Agency** | `info@loloagency.com` | Arch-1 (White-Label Agency) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Distinct warmth & character in identity work. Subject: Style A. Scheduled for Mon ~9:00 AM (America/Toronto). |
-| **034** | **Marker** | `founders@onmarker.com` | Arch-2 (Funded Startup) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Workflow product first fold value proposition. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Los_Angeles). |
-| **037** | **Corsair** | `dev@corsair.dev` | Arch-2 (Funded Startup) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Translating engineering depth into first-screen story. Subject: Style A. Scheduled for Mon ~9:00 AM (America/New_York). |
-| **051** | **Specific** | `hello@specific.dev` | Arch-2 (Funded Startup) | 2026-09-12 | 2026-09-15 | **SCHEDULED** | Replacing generic dark-mode template with motion hero. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Los_Angeles). |
+| **002** | **Slice Design** | `hello@slicedesign.co.uk` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Biotiful packaging & clean typographic identity. Subject: Style A. Scheduled for Mon ~9:00 AM (Europe/London). |
+| **005** | **LMPP Studio** | `info@lmpp.studio` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Luxury editorial work & identity restraint. Subject: Style B. Scheduled for Mon ~9:00 AM (Europe/London). |
+| **009** | **Other Means** | `us@othermeans.us` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Cultural & institutional typography benchmark. Subject: Style A. Scheduled for Mon ~9:00 AM (America/New_York). |
+| **012** | **Shawn Scott Studio** | `hello@shawnscott.studio` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Packaging systems & typographic detail craft. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Los_Angeles). |
+| **019** | **Violet Office** | `info@violetoffice.com` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Intersection between physical spaces and brand. Subject: Style A. Scheduled for Mon ~9:00 AM (Europe/Berlin). |
+| **023** | **We Are Colette** | `business@wearecolette.com` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Art direction & visual narrative storytelling. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Toronto). |
+| **024** | **Lolo Agency** | `info@loloagency.com` | Arch-1 (White-Label Agency) | 2026-09-14 | 2026-09-17 | **SENT** | Distinct warmth & character in identity work. Subject: Style A. Scheduled for Mon ~9:00 AM (America/Toronto). |
+| **034** | **Marker** | `founders@onmarker.com` | Arch-2 (Funded Startup) | 2026-09-14 | 2026-09-17 | **SENT** | Workflow product first fold value proposition. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Los_Angeles). |
+| **037** | **Corsair** | `dev@corsair.dev` | Arch-2 (Funded Startup) | 2026-09-14 | 2026-09-17 | **SENT** | Translating engineering depth into first-screen story. Subject: Style A. Scheduled for Mon ~9:00 AM (America/New_York). |
+| **051** | **Specific** | `hello@specific.dev` | Arch-2 (Funded Startup) | 2026-09-14 | 2026-09-17 | **SENT** | Replacing generic dark-mode template with motion hero. Subject: Style B. Scheduled for Mon ~9:00 AM (America/Los_Angeles). |
 
 ---
 
 ## 4. Pipeline Velocity Metrics (Updated Daily)
 
-- **Total Sent to Date**: 10 (5 on 2026-09-11 + 5 on 2026-09-12)
+- **Total Sent to Date**: 20 (5 on 2026-09-11 + 5 on 2026-09-12 + 10 on 2026-09-14)
 - **Total Drafted in Titan Mail**: 20 (Batch 3)
-- **Total Scheduled in Titan Mail**: 10 (Batch 4, queued in Titan Drafts for Monday morning windows)
+- **Total Scheduled in Titan Mail**: 0 (Batch 4 dispatched)
 - **Total Targets Processed**: 40
 - **Daily Target**: 40 (Warmup Phase 1: 10 emails/batch cap)
 - **Total Replied**: 0

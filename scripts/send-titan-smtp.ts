@@ -230,17 +230,21 @@ function getTimezoneForTarget(city: string, country: string): string {
 function calculateSendWindow(timezone: string): SendWindow {
   const now = new Date();
 
-  // Get current time in target timezone
-  const targetLocalTime = new Date(
-    now.toLocaleString('en-US', { timeZone: timezone })
-  );
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(now);
 
-  const hour = targetLocalTime.getHours();
-  const minute = targetLocalTime.getMinutes();
-  const dayOfWeek = targetLocalTime.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const partMap = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  const hour = parseInt(partMap.hour === '24' ? '0' : partMap.hour, 10);
+  const minute = parseInt(partMap.minute, 10);
+  const weekday = partMap.weekday;
 
   const currentMinuteOfDay = hour * 60 + minute;
-  const formattedTime = targetLocalTime.toLocaleString('en-US', {
+  const formattedTime = now.toLocaleString('en-US', {
     timeZone: timezone,
     weekday: 'short',
     hour: '2-digit',
@@ -255,7 +259,7 @@ function calculateSendWindow(timezone: string): SendWindow {
   const ACCEPTABLE_START = 7 * 60 + 30;  // 7:30 AM
   const ACCEPTABLE_END = 11 * 60 + 30;   // 11:30 AM
 
-  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  const isWeekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
   const isOptimal = isWeekday && currentMinuteOfDay >= OPTIMAL_START && currentMinuteOfDay <= OPTIMAL_END;
   const isAcceptable = isWeekday && currentMinuteOfDay >= ACCEPTABLE_START && currentMinuteOfDay <= ACCEPTABLE_END;
 

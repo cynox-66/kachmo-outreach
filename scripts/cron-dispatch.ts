@@ -110,14 +110,22 @@ interface WindowEvaluation {
 
 function evaluateWindow(timezone: string, force: boolean): WindowEvaluation {
   const now = new Date();
-  const targetLocal = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
 
-  const hour = targetLocal.getHours();
-  const minute = targetLocal.getMinutes();
-  const dayOfWeek = targetLocal.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(now);
+
+  const partMap = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  const hour = parseInt(partMap.hour === '24' ? '0' : partMap.hour, 10);
+  const minute = parseInt(partMap.minute, 10);
+  const weekday = partMap.weekday;
 
   const currentMin = hour * 60 + minute;
-  const formatted = targetLocal.toLocaleString('en-US', {
+  const formatted = now.toLocaleString('en-US', {
     timeZone: timezone,
     weekday: 'short',
     hour: '2-digit',
@@ -130,11 +138,11 @@ function evaluateWindow(timezone: string, force: boolean): WindowEvaluation {
       isSendable: true,
       localTimeFormatted: formatted,
       timezone,
-      reason: `Force override active (${formatted} local)`,
+      reason: `Force override active (${formatted} in ${timezone})`,
     };
   }
 
-  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  const isWeekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
   // Sendable window: weekday 7:30 AM to 11:30 AM local
   const isSendable = isWeekday && currentMin >= (7 * 60 + 30) && currentMin <= (11 * 60 + 30);
 
@@ -176,13 +184,29 @@ function updateTrackerStatus(targetNumber: string, sentDate: string): void {
   if (!fs.existsSync(trackerPath)) return;
 
   let content = fs.readFileSync(trackerPath, 'utf-8');
-  // Match row starting with target number and change SCHEDULED or DRAFTED to SENT
-  const regex = new RegExp(`(\\|\\s*\\*\\*${targetNumber}\\*\\*[\\s\\S]*?\\|\\s*\\*\\*)(SCHEDULED|DRAFTED)(\\*\\*)`, 'g');
-  if (regex.test(content)) {
-    content = content.replace(regex, `$1SENT$3`);
-    fs.writeFileSync(trackerPath, content);
-    console.log(`  ✓ Updated Target #${targetNumber} to SENT in OUTREACH_TRACKER.md`);
-  }
+  
+  // Calculate follow-up date (+3 days)
+  const d = new Date(sentDate);
+  d.setDate(d.getDate() + 3);
+  const followUpDate = d.toISOString().split('T')[0];
+
+  const lines = content.split('\n');
+  const updatedLines = lines.map(line => {
+    if (line.includes(`| **${targetNumber}** |`)) {
+      const cols = line.split('|');
+      if (cols.length >= 9) {
+        cols[5] = ` ${sentDate} `;
+        cols[6] = ` ${followUpDate} `;
+        cols[7] = cols[7].replace(/SCHEDULED|DRAFTED/, 'SENT');
+        return cols.join('|');
+      }
+    }
+    return line;
+  });
+
+  content = updatedLines.join('\n');
+  fs.writeFileSync(trackerPath, content);
+  console.log(`  ✓ Updated Target #${targetNumber} to SENT in OUTREACH_TRACKER.md`);
 }
 
 async function main() {
