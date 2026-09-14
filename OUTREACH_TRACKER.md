@@ -132,12 +132,29 @@ When a reply lands in Titan Mail:
 
 ---
 
+### Batch 5: Generated & Scheduled via /mail-start on 2026-09-14 (10 Targets in Titan Drafts)
+
+| # | Target Name | Recipient Contact | Archetype | Sent Date | Follow-up Due | Current Status | Thread Notes & Conversion Outcome |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **101** | **Spin** | `studio@spin.co.uk` | Arch-1 (White-Label Agency) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Unit Editions & AIR Studios typography craft. Subject: dev overflow for Spin?. Scheduled for Tue ~9:00 AM (Europe/London). |
+| **102** | **OMSE** | `hello@omse.co` | Arch-1 (White-Label Agency) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Kinetic typography for Printworks London. Subject: kinetic web builds for OMSE?. Scheduled for Tue ~9:00 AM (Europe/London). |
+| **103** | **A Practice for Everyday Life** | `n@apracticeforeverydaylife.com` | Arch-1 (White-Label Agency) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Tate & Bauhaus Dessau institutional typography. Subject: interactive digital builds for APFEL?. Scheduled for Tue ~9:00 AM (Europe/London). |
+| **104** | **Accept & Proceed** | `partnership@acceptandproceed.com` | Arch-1 (White-Label Agency) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Nike & NASA brand installations. Subject: creative dev for Accept & Proceed?. Scheduled for Tue ~9:00 AM (Europe/London). |
+| **105** | **NIMU Agency** | `nieke@nimuagency.com` | Arch-1 (White-Label Agency) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Editorial art direction & tactile luxury craft. Subject: dev overflow for NIMU Agency?. Scheduled for Tue ~9:00 AM (Europe/Amsterdam). |
+| **106** | **Cuckoo** | `yonghee@cuckoo.so` | Arch-2 (Funded Startup) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Real-time audio translation first fold demo. Subject: Cuckoo first fold. Scheduled for Tue ~9:00 AM (America/Los_Angeles). |
+| **107** | **Roe AI** | `richard@roe-ai.com` | Arch-2 (Funded Startup) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Multimodal SQL query interactive first screen. Subject: Roe AI first fold. Scheduled for Tue ~9:00 AM (America/Los_Angeles). |
+| **108** | **Greptile** | `daksh@greptile.com` | Arch-2 (Funded Startup) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Codebase RAG architecture hero visual narrative. Subject: Greptile first fold narrative. Scheduled for Tue ~9:00 AM (America/Los_Angeles). |
+| **109** | **Cerebrium** | `michael@cerebrium.ai` | Arch-2 (Funded Startup) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Sub-second ML cold starts benchmark visual. Subject: Cerebrium first fold speed. Scheduled for Tue ~9:00 AM (America/Los_Angeles). |
+| **110** | **Martin** | `dawson@trymartin.com` | Arch-2 (Funded Startup) | 2026-09-15 | 2026-09-18 | **SCHEDULED** | Autonomous voice agency interactive soundwave hero. Subject: Martin first screen interaction. Scheduled for Tue ~9:00 AM (America/Los_Angeles). |
+
+---
+
 ## 4. Pipeline Velocity Metrics (Updated Daily)
 
 - **Total Sent to Date**: 20 (5 on 2026-09-11 + 5 on 2026-09-12 + 10 on 2026-09-14)
 - **Total Drafted in Titan Mail**: 20 (Batch 3)
-- **Total Scheduled in Titan Mail**: 0 (Batch 4 dispatched)
-- **Total Targets Processed**: 40
+- **Total Scheduled in Titan Mail**: 10 (Batch 5, queued in Titan Drafts & scheduled-queue.json for Tuesday morning windows)
+- **Total Targets Processed**: 50
 - **Daily Target**: 40 (Warmup Phase 1: 10 emails/batch cap)
 - **Total Replied**: 0
 - **Positive Reply Rate**: —
