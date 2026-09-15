@@ -1,0 +1,121 @@
+target_number,company,canonical_lead_id,status,in_committed_HEAD_csv
+001,Deuce Studio,dd365e3c-8d4f-4b76-90ae-e933302095ca,MIGRATED,yes
+002,Slice Design,06789dd9-6d59-4abc-8085-9b64d4e8a138,MIGRATED,yes
+003,Fellow Partners,d2f61a9f-a96f-43d1-8e0f-551602586ae3,MIGRATED,yes
+004,Elouve Collective,34c6fdf3-7ad5-4082-a35f-b2c631998576,MIGRATED,yes
+005,LMPP Studio,c30c1ea2-dcc9-48e0-a564-dcacf18b2c03,MIGRATED,yes
+006,SUM Design,af1345de-3c9b-4631-9ac2-9f572b52a873,MIGRATED,yes
+007,Order Design,60e3e462-f663-408e-8890-dd7346d5562e,MIGRATED,yes
+008,Saint Urbain,f8705104-3494-4611-b04a-3e18d72b772a,MIGRATED,yes
+009,Other Means,c60d4321-6c28-42a4-92aa-de0acbce3341,MIGRATED,yes
+010,Splash Creative,4ee34949-51cd-40fc-82e6-73e2a56d5cf9,MIGRATED,yes
+011,Moniker,86791d0c-6a4c-4dca-8a11-7b3854ca42ba,MIGRATED,yes
+012,Shawn Scott Studio,f16826c3-e6b4-4a8b-b8c9-d1b44c30c4bd,MIGRATED,yes
+013,Strohl,8a9f0171-bbf0-4c4a-ade5-fbb6a31836d9,MIGRATED,yes
+014,Elixir Design,588d873d-2774-4494-826a-0737d554b1e3,MIGRATED,yes
+015,Wunder,1a9bf5bc-037e-4a34-9db8-d11466b12b53,MIGRATED,yes
+016,Wonderland,6cbc2580-6118-4214-987e-280006e3b51d,MIGRATED,yes
+017,Helder,ef88a648-ba2d-4ddf-81e5-d3994c1c2f07,MIGRATED,yes
+018,A New Day Studio,8c1108a5-ef90-47f6-be7e-c81d49471884,MIGRATED,yes
+019,Violet Office,49fcacce-a6b4-4686-8869-b8895d60d1f9,MIGRATED,yes
+020,studio sesenta,8f4556ba-dabd-4504-b203-fde7c920a28c,MIGRATED,yes
+021,Granyon,8db8fa4f-591e-485f-88d2-b92a894f44d7,MIGRATED,yes
+022,Side Perspectives,40d51512-143f-4f7f-91db-1eee2ab8f299,MIGRATED,yes
+023,We Are Colette,1d0eea20-dd0d-4283-acfa-defb8aebfc1e,MIGRATED,yes
+024,Lolo Agency,593a8ead-9124-4884-8ee2-6f24310fc8be,MIGRATED,yes
+025,Moloobhoy & Brown,214c39ef-7b52-4f38-bf41-36d3d6504146,MIGRATED,yes
+026,Formulate Creative,f5e55ac4-a86a-43bf-b958-b02407fa883e,MIGRATED,yes
+027,Mixed Elements Design Studio,f5a1090a-2169-4eeb-81ab-e842fad7d524,MIGRATED,yes
+028,Non-Object,7d6a4986-5b78-46de-a61d-24445661b5fc,MIGRATED,yes
+029,Chukster Studio,4f965ada-e01a-4c76-94e8-13b6e21777da,MIGRATED,yes
+030,Thonik,535366ff-f554-41bf-8860-b44cccd0f2e1,MIGRATED,yes
+031,End Close,955f9a63-7dbc-4132-bfb1-82c6843b6f88,MIGRATED,yes
+032,Kestrel AI,5d08a2de-8a44-47b5-8ff4-3b8831f8044a,MIGRATED,yes
+033,Moss,b81fa3b4-258a-4e13-88dc-759ffb399b6c,MIGRATED,yes
+034,Marker,056f339f-301d-44fb-aa32-31347716f0f3,MIGRATED,yes
+035,Poth Labs,77366e59-7bc3-4632-ac62-d3e7a39624ae,MIGRATED,yes
+036,Contrario,7fdc60b5-de15-4004-9d7a-a0c3690689da,MIGRATED,yes
+037,Corsair,60e1c2b5-a2d4-4b70-aafd-40d08192ad21,MIGRATED,yes
+038,Promptless,aff39099-335e-4787-9e66-f03665b6aca4,MIGRATED,yes
+039,Truffle AI,9bbe4cc7-ecde-467b-a852-45cac8bafe15,MIGRATED,yes
+040,Corelayer,95566410-ff7d-43b9-af46-849940c738f6,MIGRATED,yes
+041,Clerked,097a5304-ef68-4347-8065-686e6b03d829,MIGRATED,yes
+042,Dome,3e5b4f86-77aa-48f8-90c4-00e7f91ff1ab,MIGRATED,yes
+043,Fastshot,601e72ae-b35f-4c26-adec-d59a9cb27f5f,MIGRATED,yes
+044,Lapis,b4410d43-a0db-4919-bef5-eac2deed2350,MIGRATED,yes
+045,Lemma,3f5c952c-7f37-4c65-bb8e-2cc8fab83d5e,MIGRATED,yes
+046,Lexi,14d5ab23-a09a-4a0c-af64-beb74930499c,MIGRATED,yes
+047,Lua Global Inc,ffe2aceb-3e2c-4259-a5d4-242682b2b005,MIGRATED,yes
+048,Rovr,ec1d000c-d934-4a2c-b3c4-d904f5ea76fb,MIGRATED,yes
+049,Semble,cabcf574-77ed-489a-9a92-e255cdbf9b67,MIGRATED,yes
+050,Sourcebot,c40b7a23-1059-439a-864e-4aade2c7745e,MIGRATED,yes
+051,Specific,691b5e80-f217-4d60-8753-3b3bb220376d,MIGRATED,yes
+052,The Context Company,752849b1-a3f7-4094-95df-d8be166b3673,MIGRATED,yes
+053,Unsiloed AI,c798cd7e-488f-47ec-9f72-e5d486b48317,MIGRATED,yes
+054,Uplane,41d89cc9-d47c-4dd7-89f4-31fb663ff210,MIGRATED,yes
+055,Zavo,17d07dbc-8dba-48a4-b6b7-7f77ac7f530c,MIGRATED,yes
+056,Tim Wendelboe,b1c13a14-8c32-4ad3-ad9a-1453efa03e9a,MIGRATED,yes
+057,Square Mile Coffee Roasters,13ea53f0-df7b-49b0-9bd4-7bd36a675926,MIGRATED,yes
+058,ONA Coffee,c17115fd-cf11-4a88-b649-91e24f92a682,MIGRATED,yes
+059,Workshop Coffee,cc4b8ce9-c941-442a-bf90-602c6e8d768d,MIGRATED,yes
+060,Dark Woods Coffee,0f0a069e-2729-4428-98df-bbc34307fad7,MIGRATED,yes
+061,Holloway Li,d9b0a364-91f2-47c0-8534-890bbd46193c,MIGRATED,yes
+062,Studio Ashby,5605dbdd-91f8-4c57-81fa-63ac724ac36c,MIGRATED,yes
+063,Only If Architecture,b3fb75d0-ad9d-43ab-8495-f99202d1293d,MIGRATED,yes
+064,FreelandBuck,a7e6b598-e350-4e03-b85e-2869c82c0963,MIGRATED,yes
+065,Bestor Architecture,89e4d45b-37cf-48c7-8d27-c50cc8d4f688,MIGRATED,yes
+066,Chandos Collective,cea35e82-3106-41d0-89ff-dacf2da636fd,MIGRATED,yes
+067,East Fork,064e7503-bb38-433b-afbf-f5b90d5fc1ce,MIGRATED,yes
+068,PINCH London,83486085-7a56-4e9b-9680-b198899a4617,MIGRATED,yes
+069,Jono Pandolfi Designs,ed99142a-4c7f-4f8c-bd73-520e84f9f451,MIGRATED,yes
+070,Heath Ceramics,913f086e-20a7-4de8-9075-7c89882e7226,MIGRATED,yes
+071,Harley Street Injectables,f5319365-5379-4354-a201-375b9de461ac,MIGRATED,yes
+072,Harley Street Smile Clinic,37ab84d5-4055-4686-a852-e4faf17048e4,MIGRATED,yes
+073,Cosmedocs Aesthetic Clinic,763ed947-53ba-46ee-b8f0-2adb0cbc8ba5,MIGRATED,yes
+074,Luxury Aesthetics,c0e58b7c-26b6-4590-9857-addf597bb08a,MIGRATED,yes
+075,Dental Sanctuary,d322bf96-b64d-4a36-adf5-80d15867d893,MIGRATED,yes
+076,Miss Franc,ddaf6724-57ad-488b-b835-724254a1a6ea,MIGRATED,yes
+077,Hoblyn & White,b0f88b16-c5ca-40af-b603-8c598f5dd05c,MIGRATED,yes
+078,Acacia Gardens,dc6d0a3b-09fe-4896-8b53-bf23e661daba,MIGRATED,yes
+079,Perry Guillot Inc.,69eda51b-860a-4785-9737-3d22249291be,MIGRATED,yes
+080,Laurel Group,8e0b21fd-cab6-4a30-8a4c-ed10ba1161a7,MIGRATED,yes
+081,Stepien Lake LLP,7d0e75f2-72ac-429c-9b09-07e25e582ff2,MIGRATED,yes
+082,Boston Technology Law,ec20d4bc-a443-41ce-afce-d715fef8f5ce,MIGRATED,yes
+083,Insight Legal,a9e9cbdd-d06b-406d-a80c-163131a048a7,MIGRATED,yes
+084,Kaizen Law,9a75583a-a3bd-4aa0-b7ac-5b719310bded,MIGRATED,yes
+085,Mosman Village Dentistry,0c5c479f-80c7-4ade-b4af-0d6bb37e6914,MIGRATED,yes
+086,Rhino Roofing and Building Specialists Ltd,369678fb-3ac9-4872-9f58-ba782ec260ae,MIGRATED,yes
+087,TS Plumbing & Heating Services (2026) Ltd,29ce32ad-21f5-4799-8a27-e74f5bd290e2,MIGRATED,yes
+088,"Diva Hair, Beauty Salon & Academy Ltd",7931511c-b654-40c7-9d32-3148eb0ca756,MIGRATED,yes
+089,Electrical Installation Specialists Ltd,11b71fb2-c4ad-4abf-a746-2c5d34b5c640,MIGRATED,yes
+090,No 52 Cosmetic Clinic Ltd,3321fe1b-04a9-4bfb-957a-abd759d3edbd,MIGRATED,yes
+091,Tate Gardening Services Ltd,d998bce7-5823-4788-8da6-cae5a6832882,MIGRATED,yes
+092,RV Joinery Ltd,6617aeb5-75ce-4df8-b2b0-19b36ad1248b,MIGRATED,yes
+093,"Revitalize, Wellness & Beauty Ltd",3952662f-f1b2-4b46-b7d0-fd6ac42cbe9c,MIGRATED,yes
+094,Michelle Walker Beauty Therapy Ltd,a0a51a19-f807-455e-9122-4d03f8eadba2,MIGRATED,yes
+095,Yew Store & Landscape Ltd,023c47df-1f0c-4bdb-a96c-46db399025d7,MIGRATED,yes
+096,Starscape Café Limited,4c7cd60c-d0d5-4f75-8702-21b40733ba2a,MIGRATED,yes
+097,Bethesda Building Solutions Ltd,b65fcceb-8926-42c4-9dcd-5da44b695649,MIGRATED,yes
+098,Deans Landscape and Maintenance Ltd,28878c2a-aece-45bc-95ff-140dcec5d076,MIGRATED,yes
+099,FAS2 Architectural Design Limited,7fd17a6c-58ef-4969-8798-fe774457721b,MIGRATED,yes
+100,Advanced Maintenance & Repair NI Ltd,2599dd4d-7465-48b3-aa26-bf4f69359b04,MIGRATED,yes
+101,Spin,e706ecf5-39fd-460f-a637-d40b75f5d96d,MIGRATED,yes
+102,OMSE,20b48b76-a2a5-4a7d-ac92-84d331baa2b1,MIGRATED,yes
+103,A Practice for Everyday Life,856aab4a-3b72-46a4-834c-c50548080e53,MIGRATED,yes
+104,Accept & Proceed,4b897961-13cd-4367-88ea-fdaa3090e502,MIGRATED,yes
+105,NIMU Agency,b427e7c4-9095-4964-afc2-73bfdec51796,MIGRATED,yes
+106,Cuckoo,4c48da3f-9588-4410-bd4f-ff2161363539,MIGRATED,yes
+107,Roe AI,a885a52d-afff-41de-b41d-5977055c70e2,MIGRATED,yes
+108,Greptile,9ff60e98-e4ae-4322-9880-295ec8b89488,MIGRATED,yes
+109,Cerebrium,90dd45be-241b-4520-8f4f-bf1d864b7926,MIGRATED,yes
+110,Martin,60f6c244-bd55-4651-921b-af918e840f88,MIGRATED,yes
+111,Royal Heritage Haveli,73a096ec-d3b5-4673-9ea6-7c9d8fca410e,MIGRATED,no (added in uncommitted CSV edit)
+112,The Esthetic Clinics,6ef7c651-d3aa-43cd-ae9a-2d45a31b7f34,MIGRATED,no (added in uncommitted CSV edit)
+113,A Advani Realty,55ae34c0-00a6-4711-aaad-2530bd2b74c7,MIGRATED,no (added in uncommitted CSV edit)
+114,Tivoli Hospitality Group,3931376f-9584-481b-938d-e817d2b97a73,MIGRATED,no (added in uncommitted CSV edit)
+115,Sunita Shekhawat Fine Jewellery,24a8e71a-e058-49f8-983c-1ed0ea5218d2,MIGRATED,no (added in uncommitted CSV edit)
+116,Bombay Shirt Company,c341d09d-473b-4de7-a8fb-604f31132f01,MIGRATED,no (added in uncommitted CSV edit)
+117,MuseLAB,827d8e84-b91a-4011-bf75-f0437463bbec,MIGRATED,no (added in uncommitted CSV edit)
+118,Santé Spa Cuisine,91289bbf-686c-4fc8-9ada-cf16711583e3,MIGRATED,no (added in uncommitted CSV edit)
+119,2IIM,ee21a66f-9d1d-433b-9836-d1399eda63bd,MIGRATED,no (added in uncommitted CSV edit)
+120,The Painfree Dentist,d77532fb-4221-4aa2-ac0a-a950aded1e08,MIGRATED,no (added in uncommitted CSV edit)

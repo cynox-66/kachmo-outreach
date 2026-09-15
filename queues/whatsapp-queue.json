@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-09-14T16:45:28.800Z",
+  "items": [],
+  "excluded": [
+    {
+      "target_number": "068",
+      "company": "PINCH London",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "071",
+      "company": "Harley Street Injectables",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "073",
+      "company": "Cosmedocs Aesthetic Clinic",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "074",
+      "company": "Luxury Aesthetics",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "078",
+      "company": "Acacia Gardens",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "079",
+      "company": "Perry Guillot Inc.",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "080",
+      "company": "Laurel Group",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "083",
+      "company": "Insight Legal",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "111",
+      "company": "Royal Heritage Haveli",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "112",
+      "company": "The Esthetic Clinics",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "113",
+      "company": "A Advani Realty",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "114",
+      "company": "Tivoli Hospitality Group",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "115",
+      "company": "Sunita Shekhawat Fine Jewellery",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "116",
+      "company": "Bombay Shirt Company",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "117",
+      "company": "MuseLAB",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "118",
+      "company": "Santé Spa Cuisine",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "119",
+      "company": "2IIM",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    },
+    {
+      "target_number": "120",
+      "company": "The Painfree Dentist",
+      "reason": "phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)"
+    }
+  ]
+}

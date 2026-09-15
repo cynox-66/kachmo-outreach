@@ -1,0 +1,188 @@
+{
+  "week": {
+    "start": "2026-09-08",
+    "end": "2026-09-14"
+  },
+  "generated_at": "2026-09-14T16:45:29.019Z",
+  "sources": "Email: OUTREACH_TRACKER.md (production ledger, local copy). Calls/WhatsApp/pipeline: database + analytics/events.jsonl.",
+  "funnel": [
+    {
+      "stage": "Leads in database",
+      "count": 120
+    },
+    {
+      "stage": "Researched (completeness ≥ 60%)",
+      "count": 0
+    },
+    {
+      "stage": "Qualified (no blocking gate)",
+      "count": 13
+    },
+    {
+      "stage": "Contacted (any channel)",
+      "count": 20
+    },
+    {
+      "stage": "Responded / conversation",
+      "count": 0
+    },
+    {
+      "stage": "Meeting",
+      "count": 0
+    },
+    {
+      "stage": "Proposal sent",
+      "count": 0
+    },
+    {
+      "stage": "Won",
+      "count": 0
+    }
+  ],
+  "conversions": [
+    {
+      "from": "contacted",
+      "to": "responded",
+      "k": 0,
+      "n": 20,
+      "display": "0/20 (0%)"
+    },
+    {
+      "from": "responded",
+      "to": "meeting",
+      "k": 0,
+      "n": 0,
+      "display": "—"
+    },
+    {
+      "from": "meeting",
+      "to": "proposal",
+      "k": 0,
+      "n": 0,
+      "display": "—"
+    },
+    {
+      "from": "proposal",
+      "to": "won",
+      "k": 0,
+      "n": 0,
+      "display": "—"
+    }
+  ],
+  "channels": [
+    {
+      "channel": "EMAIL",
+      "attempted": 20,
+      "responded": {
+        "from": "sent",
+        "to": "replied",
+        "k": 0,
+        "n": 20,
+        "display": "0/20 (0%)"
+      },
+      "positive": {
+        "from": "sent",
+        "to": "positive",
+        "k": 0,
+        "n": 20,
+        "display": "0/20 (0%)"
+      }
+    },
+    {
+      "channel": "CALL",
+      "attempted": 0,
+      "responded": {
+        "from": "called",
+        "to": "connected",
+        "k": 0,
+        "n": 0,
+        "display": "—"
+      },
+      "positive": {
+        "from": "called",
+        "to": "interested/meeting",
+        "k": 0,
+        "n": 0,
+        "display": "—"
+      }
+    },
+    {
+      "channel": "WHATSAPP",
+      "attempted": 0,
+      "responded": {
+        "from": "sent",
+        "to": "replied",
+        "k": 0,
+        "n": 0,
+        "display": "—"
+      },
+      "positive": {
+        "from": "sent",
+        "to": "positive",
+        "k": 0,
+        "n": 0,
+        "display": "—"
+      }
+    }
+  ],
+  "archetypes": [
+    {
+      "archetype": "1: White-Label Agency",
+      "leads": 35,
+      "contacted": 16,
+      "responded": 0,
+      "meetings": 0,
+      "won": 0
+    },
+    {
+      "archetype": "2: Startup Craft Upgrade",
+      "leads": 30,
+      "contacted": 4,
+      "responded": 0,
+      "meetings": 0,
+      "won": 0
+    },
+    {
+      "archetype": "3: Interactive System",
+      "leads": 15,
+      "contacted": 0,
+      "responded": 0,
+      "meetings": 0,
+      "won": 0
+    },
+    {
+      "archetype": "4: Workflow/Booking Overhaul",
+      "leads": 15,
+      "contacted": 0,
+      "responded": 0,
+      "meetings": 0,
+      "won": 0
+    },
+    {
+      "archetype": "5: Zero-Presence Greenfield",
+      "leads": 15,
+      "contacted": 0,
+      "responded": 0,
+      "meetings": 0,
+      "won": 0
+    },
+    {
+      "archetype": "6: Indian Business Digitization",
+      "leads": 10,
+      "contacted": 0,
+      "responded": 0,
+      "meetings": 0,
+      "won": 0
+    }
+  ],
+  "objections": {},
+  "recent_objections": [],
+  "lost_reasons": {},
+  "won_deals": [],
+  "this_week": {
+    "emails_sent": 20,
+    "events": {}
+  },
+  "conversion_probability": "UNKNOWN",
+  "note": "No probabilities or expected revenue are estimated. Ratios below n=20 are shown as raw counts only."
+}

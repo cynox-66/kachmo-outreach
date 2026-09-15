@@ -1,0 +1,63 @@
+{
+  "date": "2026-09-14",
+  "generated_at": "2026-09-14T16:45:28.818Z",
+  "alerts": [
+    "Local repo is 1 commit(s) behind origin (as of the last git fetch). The cron pushes queue/tracker updates, so local email state is stale. Pull before trusting email numbers. Do NOT run send:titan or dispatch:cron locally until you have."
+  ],
+  "aadi": {
+    "calls": [],
+    "follow_ups_due": [],
+    "whatsapp_to_send": [],
+    "whatsapp_to_approve": []
+  },
+  "dev": {
+    "email_follow_ups_due": [
+      "001 Deuce Studio (due 2026-09-14)",
+      "003 Fellow Partners (due 2026-09-14)",
+      "006 SUM Design (due 2026-09-14)",
+      "007 Order Design (due 2026-09-14)",
+      "008 Saint Urbain (due 2026-09-14)"
+    ],
+    "replies_to_answer": [],
+    "positive_without_meeting": [],
+    "scheduled_emails_local": [
+      "101 Spin",
+      "102 OMSE",
+      "103 A Practice for Everyday Life",
+      "104 Accept & Proceed",
+      "105 NIMU Agency",
+      "106 Cuckoo",
+      "107 Roe AI",
+      "108 Greptile",
+      "109 Cerebrium",
+      "110 Martin"
+    ],
+    "next_email_candidates": [
+      "116 Bombay Shirt Company: A (provisional)",
+      "114 Tivoli Hospitality Group: A (provisional)",
+      "119 2IIM: A (provisional)"
+    ],
+    "follow_ups_due": []
+  },
+  "pipeline": {
+    "meetings_booked": [],
+    "proposals_out": [],
+    "won": []
+  },
+  "research_next": [
+    "111 Royal Heritage Haveli [A+ prov.]: Find a direct route to Kanwar Pradip Singh: a personal work email or a publicly listed phone. Now: reservation@ is a shared mailbox, not the decision-maker; phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis).",
+    "120 The Painfree Dentist [A+ prov.]: Find a direct route to Dr. Diksha Tahilramani Batra: a personal work email or a publicly listed phone. Now: info@ is a shared mailbox, not the decision-maker; phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis).",
+    "112 The Esthetic Clinics [A prov.]: Find a direct route to Dr. Rinky Kapoor: a personal work email or a publicly listed phone. Now: personal freemail address with no recorded source; verify before use; phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis).",
+    "116 Bombay Shirt Company [A prov.]: Find where +91 95134 46201 is published. If you cannot find it, do NOT call it.",
+    "118 Santé Spa Cuisine [A prov.]: Find a direct route to Sonal Barmecha: a personal work email or a publicly listed phone. Now: personal freemail address with no recorded source; verify before use; phone provenance is UNVERIFIED; needs PUBLICLY_LISTED (source URL) or VERIFIED (basis)."
+  ],
+  "lead_base": {
+    "total": 120,
+    "outreach_ready": 3,
+    "qualified": 10,
+    "research_required": 107,
+    "disqualified": 0,
+    "a_or_a_plus": 20,
+    "a_or_a_plus_provisional": 20
+  }
+}

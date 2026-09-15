@@ -1,0 +1,23 @@
+npm scripts:
+  send:titan = tsx scripts/send-titan-smtp.ts
+  send:test = tsx scripts/send-titan-smtp.ts --test
+  draft:titan = tsx scripts/create-titan-drafts.ts
+  dispatch:cron = tsx scripts/cron-dispatch.ts
+  dispatch:dry = tsx scripts/cron-dispatch.ts --dry-run
+  leads:migrate = tsx scripts/migrate-csv-to-leads.ts
+  leads:export-csv = tsx scripts/leads-export-csv.ts
+  leads:dedupe = tsx scripts/leads-dedupe.ts
+  leads:qualify = tsx scripts/leads-qualify.ts
+  leads:score = tsx scripts/leads-score.ts
+  leads:research-queue = tsx scripts/leads-research-queue.ts
+  leads:enrich = tsx scripts/leads-enrich.ts
+  leads:opportunity = tsx scripts/leads-opportunity.ts
+  queue:calls = tsx scripts/queue-calls.ts
+  queue:whatsapp = tsx scripts/queue-whatsapp.ts
+  calls:log = tsx scripts/call-log.ts
+  war-room = tsx scripts/war-room.ts
+  analytics:weekly = tsx scripts/analytics-weekly.ts
+  test = tsx scripts/__tests__/run-tests.ts
+csv data rows 120
+contiguous 001-120: True
+HEAD csv physical lines 112 HEAD data rows 110

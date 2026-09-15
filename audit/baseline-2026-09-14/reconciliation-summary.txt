@@ -1,0 +1,11 @@
+120 vs 121 reconciliation (captured before V2 fixes)
+kachmo_targets.csv physical newline count (wc -l): 121  (file does not end with a newline: False)
+CSV records incl. header: 121  -> data rows: 120
+target numbers contiguous 001-120: True
+duplicate target numbers: none
+malformed rows (!=15 cols): 0
+committed HEAD CSV data rows: 110 (targets 001-110; 111-120 exist only in the uncommitted working-tree edit)
+canonical leads in database: 120
+MIGRATED: 120  MISMATCH: 0  MISSING: 0
+leads in DB with no CSV row: []
+Conclusion: there were never 121 targets. "121" is the line count (header + 120 rows). No target was lost, excluded or duplicated.

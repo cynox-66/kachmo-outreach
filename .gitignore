@@ -3,3 +3,11 @@ node_modules/
 .last-send-results.json
 *.log
 .DS_Store
+
+# Local-only backups and derived dumps (contain copies of prospect data / protected files)
+backups/
+database/backups/
+database/.tmp_*
+database/kachmo_targets_export.csv
+audit/pre-pull-backup-*/
+audit/*/v2-data-snapshot/

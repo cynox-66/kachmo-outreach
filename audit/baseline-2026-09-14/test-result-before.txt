@@ -1,0 +1,50 @@
+
+Test Group 8: WhatsApp Queue Validation
+
+💬 WhatsApp Queue Generated:
+- Saved JSON: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/queues/whatsapp-queue.json
+- Saved Markdown: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/WHATSAPP_QUEUE.md
+- Total Reviewable Drafts: 10
+  ✅ PASS: WhatsApp queue has exactly 10 eligible review targets
+  ✅ PASS: All WhatsApp items are strictly PENDING_HUMAN_REVIEW (no auto-send)
+  ✅ PASS: All WhatsApp drafts adhere to 30–75 word limit
+
+Test Group 9: Multi-Channel Suppression Blocking
+
+📞 Calling Queue Generated:
+- Saved JSON: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/queues/calling-queue.json
+- Saved Markdown Dossier: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/AADI_DAILY_CALLS.md
+- Total Call Cards: 9
+
+💬 WhatsApp Queue Generated:
+- Saved JSON: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/queues/whatsapp-queue.json
+- Saved Markdown: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/WHATSAPP_QUEUE.md
+- Total Reviewable Drafts: 9
+  ✅ PASS: Suppressed target 111 is BLOCKED from calling queue
+  ✅ PASS: Suppressed target 111 is BLOCKED from WhatsApp queue
+
+📞 Calling Queue Generated:
+- Saved JSON: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/queues/calling-queue.json
+- Saved Markdown Dossier: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/AADI_DAILY_CALLS.md
+- Total Call Cards: 10
+
+💬 WhatsApp Queue Generated:
+- Saved JSON: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/queues/whatsapp-queue.json
+- Saved Markdown: /Users/devjaiswal/Desktop/Kachmo/Clients/mails/WHATSAPP_QUEUE.md
+- Total Reviewable Drafts: 10
+
+Test Group 10: Atomic Safe I/O
+  ✅ PASS: safeWriteJson wrote and read back cleanly
+
+Test Group 11: CSV Round-Trip Fidelity
+✅ Exported 120 leads to /Users/devjaiswal/Desktop/Kachmo/Clients/mails/database/.test_export.csv
+  ✅ PASS: Exported CSV file exists
+  ✅ PASS: Exported CSV has 1 header + 120 lead rows
+
+Test Group 12: Protected Production Files Checksums
+  ✅ PASS: All 11 protected production files are 100% byte-for-byte identical to pre-migration baseline
+
+===================================================
+TEST SUMMARY: 30 PASSED | 0 FAILED
+===================================================
+

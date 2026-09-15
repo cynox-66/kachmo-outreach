@@ -149,6 +149,23 @@ When a reply lands in Titan Mail:
 
 ---
 
+### Batch 6: Indian Direct Calling & WhatsApp Pipeline (Assigned to Aadi on 2026-09-14)
+
+| # | Target Name | City | Decision Maker | Direct Phone / WhatsApp | Call Status | Notes & Conversion Outcome |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **111** | **Royal Heritage Haveli** | Jaipur | Kanwar Pradip Singh (*Owner & MD*) | `+91 99833 17271` | **PENDING** | Hook: 18 suites & courtyards, direct booking engine bypassing OTA fees. |
+| **112** | **The Esthetic Clinics** | Mumbai | Dr. Rinky Kapoor (*Co-Founder & MD*) | `+91 70280 65165` | **PENDING** | Hook: Live doctor slot booking portal + before/after visual sliders. |
+| **113** | **A Advani Realty** | Pune | Anil Advani (*Founder & MD*) | `+91 90201 42222` | **PENDING** | Hook: 3D floor plan explorer for Koregaon Park luxury residences. |
+| **114** | **Tivoli Hospitality Group** | New Delhi | Amit Kumar Sood (*CEO*) | `+91 70650 53035` | **PENDING** | Hook: 3D wedding layout visualizer + live auspicious date checker. |
+| **115** | **Sunita Shekhawat Fine Jewellery** | Jaipur | Sunita Shekhawat (*Founder & CD*) | `+91 99297 77005` | **PENDING** | Hook: 360° macro zoom Meenakari catalog + VIP private salon booking. |
+| **116** | **Bombay Shirt Company** | Mumbai | Akshay Narvekar (*Founder & CEO*) | `+91 95134 46201` | **PENDING** | Hook: Ultra-fast 60fps WebGL shirt visualizer with tactile fabric drape. |
+| **117** | **MuseLAB** | Mumbai | Jasem Pirani (*Co-Founder & Principal*) | `+91 93723 61016` | **PENDING** | Hook: Spatial AD100 architecture portfolio walkthrough for luxury residences. |
+| **118** | **Santé Spa Cuisine** | Pune | Sonal Barmecha (*Founder & MD*) | `+91 82379 02020` | **PENDING** | Hook: Interactive macro digital menu + direct table booking portal. |
+| **119** | **2IIM** | Chennai | Rajesh Balasubramanian (*Founder & CEO*) | `+91 99626 48484` | **PENDING** | Hook: Interactive CAT score-to-percentile estimator + video pedagogy trial. |
+| **120** | **The Painfree Dentist** | Mumbai | Dr. Diksha Batra (*Founder & Head Dentist*) | `+91 70454 97915` | **PENDING** | Hook: Bandra celebrity cosmetic dentistry smile makeover slider + VIP booking. |
+
+---
+
 ## 4. Pipeline Velocity Metrics (Updated Daily)
 
 - **Total Sent to Date**: 20 (5 on 2026-09-11 + 5 on 2026-09-12 + 10 on 2026-09-14)
