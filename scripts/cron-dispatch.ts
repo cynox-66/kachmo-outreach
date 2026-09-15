@@ -174,7 +174,7 @@ function createSmtpTransport(): Transporter {
       pass: TITAN_PASSWORD,
     },
     tls: {
-      rejectUnauthorized: false,
+      rejectUnauthorized: true,
     },
   });
 }

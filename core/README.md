@@ -30,6 +30,8 @@ IDE import API   ─┘        ▲
 | `queues/whatsapp.ts` | `selectWhatsAppQueue`, `buildWhatsAppDraft`, `waLinkDigits` (human send only) | `scripts/queue-whatsapp.ts` |
 | `email-ledger/tracker.ts` | `parseTrackerContent`, `scheduledQueueFromJson`, `EMAIL_SENT_STATUSES` … (read-only interpretation of Titan's ledger) | `scripts/lib/email-state.ts` |
 | `email-ledger/queue-check.ts` | `findEmailQueueIssues` (duplicate / already-sent / suppressed recipients in the scheduled queue) | `scripts/email-queue-check.ts` |
+| `email-ledger/send-guard.ts` | `evaluateSendGuard`, `outboundEmailKind` — suppression, duplicate-send and ledger-state guard for direct Titan sends (no override) | new in Phase 1.1 |
+| `email-ledger/ledger-update.ts` | `applyLedgerSendUpdate` — the ledger transition written after a successful direct send | new in Phase 1.1 |
 | `geo/timezone.ts` | `resolveTimezone` (never guesses multi-timezone countries), `addDays` | `scripts/lib/geo.ts` |
 | `util/text.ts` | `short`, `greetName`, `priorityLabel`, `signalSummary`, `wordCount` | `scripts/lib/text.ts` |
 

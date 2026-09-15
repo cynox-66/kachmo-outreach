@@ -18,5 +18,7 @@ export * from './queues/calls.js';
 export * from './queues/whatsapp.js';
 export * from './email-ledger/tracker.js';
 export * from './email-ledger/queue-check.js';
+export * from './email-ledger/send-guard.js';
+export * from './email-ledger/ledger-update.js';
 export * from './geo/timezone.js';
 export * from './util/text.js';

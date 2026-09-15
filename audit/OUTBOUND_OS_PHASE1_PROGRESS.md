@@ -8,7 +8,7 @@
 |---|---|
 | 1.0 Pure logic extraction | ✅ complete |
 | 1.0A Golden behaviour verification | ✅ complete — 120/120 leads identical |
-| 1.1 Titan security hardening | ⏳ next |
+| 1.1 Titan security hardening | ✅ complete (isolated commit, not pushed) |
 | 1.2 Hosted database foundation | not started |
 | 1.3 Authentication + authorisation | not started |
 | 1.4 Application shell | not started |
@@ -126,4 +126,69 @@ No migration performed. No database exists yet.
 ---
 
 ## Phase 1.1 — Titan security hardening
-_Pending._
+
+### Git state at start
+`main` at `0e81e91` (Phase 1.0), 2 commits ahead of `origin/main`, not pushed. Same pre-existing uncommitted derived
+files as before, still untouched.
+
+### Problem (Phase 0 finding D3)
+`npm run send:titan` (`scripts/send-titan-smtp.ts`) could send any JSON payload with no suppression check, no
+already-sent check and no ledger update; it crashed with `ReferenceError: dayOfWeek` on the outside-window path; and
+both Titan SMTP transports accepted any TLS certificate.
+
+### Pre-check before restoring TLS verification
+Connected without logging in (STARTTLS / TLS handshake only, no credentials, no email) using Node's own CA store:
+`smtpout.secureserver.net:587` and `imap.secureserver.net:993` both present valid, trusted Starfield certificates
+(valid to 2027). Turning verification on therefore does not break sending from the configured host. **Residual risk:**
+the GitHub Actions secret `TITAN_SMTP_HOST` could name a different host; it defaults to the same one.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `core/email-ledger/send-guard.ts` (new, pure) | `evaluateSendGuard(payloads, {suppression, leads, ledger, scheduledQueue})`. Blocks, in order: invalid recipient; duplicate target/recipient within the batch; suppressed **target**, **recipient** (any case), **domain** (https/www/path/case variants); lead-level `outreachBlock` (DNC flag, REPLIED_NO/OPT_OUT statuses, lead_id-only suppression entries); recipient already emailed under another target; target with no ledger row. **First touch** needs ledger state DRAFTED/SCHEDULED, is refused if already in any sent state, and is refused while the cron still holds it in `scheduled-queue.json`. **Follow-up** (subject `Re:`, the `/mail-followup` convention) needs SENT/FOLLOW_UP_DUE and is refused after FOLLOWED_UP or a follow-up logged via `pipeline:log` (single-bump protocol). No override parameter exists. |
+| `core/email-ledger/ledger-update.ts` (new, pure) | `applyLedgerSendUpdate`: header-driven tracker transition after a real send. DRAFTED/SCHEDULED → SENT with sent date and +3-day follow-up (what the cron writes); SENT/FOLLOW_UP_DUE → FOLLOWED_UP. Rows in other states are never rewritten. |
+| `scripts/lib/titan-send-guard.ts` (new) | File adapter, **fail closed**: suppression list (missing / invalid JSON / not an array / malformed entry), email ledger (missing / no rows), lead database, scheduled queue; refuses when the checkout is known to be behind origin; atomic ledger write. |
+| `scripts/send-titan-smtp.ts` (protected, approved) | Guard runs right after the payload is read, before confidence routing, SMTP, drafts and dry-run output; blocked payloads are neither sent nor drafted. Each successful send updates the ledger immediately; if that update fails, no further email is sent in the run. `dayOfWeek` defined from the recipient-timezone weekday. `tls.rejectUnauthorized: true` (via exported `smtpTransportOptions`). `calculateSendWindow(tz, now)` exported; `main()` only runs when executed as the command, so tests can import it without sending. Payload format, SMTP code path, timezone maps, throttling, IMAP drafts and `--test` are unchanged. |
+| `scripts/cron-dispatch.ts` (protected, approved) | One line: `rejectUnauthorized: false` → `true`. Nothing else. |
+| `scripts/__tests__/run-tests.ts` | Group 24's "dispatcher unchanged since the approved suppression patch" now permits exactly that single TLS line and nothing else. |
+| `audit/baseline-2026-09-15T0709/protected-checksums.txt` | New protected-file baseline via `npm run audit:baseline`. Versus the previous baseline, only `send-titan-smtp.ts` and `cron-dispatch.ts` differ; the other 9 protected files are byte-identical. |
+| `package.json` | `test` also runs the Titan suite; `test:titan` added. |
+
+### Behaviour change operators should know
+- `send:titan` now refuses a target that has **no OUTREACH_TRACKER.md row** or is in a non-sendable ledger state. The
+  ledger must record a target (DRAFTED/SCHEDULED) before it can be sent directly.
+- A first touch for a target still queued in `scheduled-queue.json` must be removed from the cron queue first.
+- A follow-up must use a `Re:` subject (as `/mail-followup` already specifies) and is allowed once.
+- `send:titan` now writes `OUTREACH_TRACKER.md` after each real send (the same transition the cron writes). Commit and
+  push that change as usual, outside a cron run.
+
+### Tests
+
+| Suite | Before 1.1 | After 1.1 |
+|---|---|---|
+| Legacy | 225 / 0 | **225 / 0** (group 24 dispatcher assertion re-pinned to the approved TLS line) |
+| Golden | 42 / 0 | **42 / 0** |
+| Titan direct-send (`npm run test:titan`) | — | **56 / 0** (new) |
+| `npm test` total | 267 | **323 passed / 0 failed** |
+| Type-check `core/` (no Node types) | clean | clean |
+| Type-check `scripts/` + `core/` strict | 1 error (`dayOfWeek`) | **clean** |
+
+The new Titan tests cover: suppressed recipient / domain / target; lead-level DNC and lead_id-only entries; missing and
+five kinds of malformed suppression list (spawned sender exits non-zero before touching any payload); missing ledger,
+unreadable lead DB, malformed scheduled queue; already-sent, replied, disqualified, unknown target, same recipient under
+another target, cron-queued target, duplicates in one batch; single follow-up allowed, second refused (ledger or
+pipeline log), no follow-up after a reply; ledger transitions and "re-run is blocked after the ledger update"; no
+force/skip flag and guard ordering in the source; Saturday / Friday-late / Tuesday-late / Sunday-India / in-window /
+before-window send-window results without a crash; certificate verification in all three Titan scripts.
+
+**Nothing was sent.** The sender is only spawned with `--dry-run`, a fake password, SMTP/IMAP host `127.0.0.1:9`, in a
+temp directory without `.env`; the test helper throws if `--dry-run` is missing. Production data hashed before and after:
+unchanged. No GitHub Action was triggered; nothing was pushed.
+
+### Remaining Titan risks (not changed in 1.1)
+- `create-titan-drafts.ts` still reads the CSV directly with no suppression check (drafts only, never sends).
+- The workflow's `git push` without `pull --rebase` (duplicate-send race during a concurrent push) is unchanged.
+- The cron's own suppression check does not match lead_id-only entries (`suppress:add` always also writes the target).
+- The protections reach GitHub only once these commits are pushed; until then the cron runs the previous code
+  (which already has suppression, but no certificate verification).

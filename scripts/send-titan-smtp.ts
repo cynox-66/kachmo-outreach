@@ -28,6 +28,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { createTransport, type Transporter } from 'nodemailer';
+import { evaluateSendGuard, type OutboundEmailKind } from '../core/email-ledger/send-guard.js';
+import { loadSendGuardInput, recordSuccessfulSend } from './lib/titan-send-guard.js';
 
 dotenv.config();
 
@@ -227,9 +229,7 @@ function getTimezoneForTarget(city: string, country: string): string {
   return 'UTC';
 }
 
-function calculateSendWindow(timezone: string): SendWindow {
-  const now = new Date();
-
+export function calculateSendWindow(timezone: string, now: Date = new Date()): SendWindow {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     weekday: 'short',
@@ -242,6 +242,8 @@ function calculateSendWindow(timezone: string): SendWindow {
   const hour = parseInt(partMap.hour === '24' ? '0' : partMap.hour, 10);
   const minute = parseInt(partMap.minute, 10);
   const weekday = partMap.weekday;
+  // 0 = Sunday … 6 = Saturday, in the recipient's timezone (was referenced below but never defined → ReferenceError).
+  const dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday);
 
   const currentMinuteOfDay = hour * 60 + minute;
   const formattedTime = now.toLocaleString('en-US', {
@@ -312,7 +314,7 @@ function calculateSendWindow(timezone: string): SendWindow {
   targetDate.setDate(targetDate.getDate() + daysToAdd);
 
   // Set to 9:00 AM in target timezone (approximate)
-  const targetTzOffset = getTimezoneOffsetMs(timezone);
+  const targetTzOffset = getTimezoneOffsetMs(timezone, now);
   const localTzOffset = now.getTimezoneOffset() * 60 * 1000;
 
   // Calculate milliseconds until next weekday 9 AM local target time
@@ -333,9 +335,7 @@ function calculateSendWindow(timezone: string): SendWindow {
   };
 }
 
-function getTimezoneOffsetMs(timezone: string): number {
-  const now = new Date();
-  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+function getTimezoneOffsetMs(timezone: string, now: Date = new Date()): number {  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
   const tzDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
   return tzDate.getTime() - utcDate.getTime();
 }
@@ -376,8 +376,12 @@ function sleep(ms: number): Promise<void> {
 
 // ─── SMTP Transport ─────────────────────────────────────────────────────────
 
-function createSmtpTransport(): Transporter {
-  return createTransport({
+/**
+ * SMTP options. The server certificate is always verified: an unverified TLS session would send the Titan password to
+ * whoever answers. (smtpout.secureserver.net presented a valid Starfield certificate when this was restored, 2026-09-15.)
+ */
+export function smtpTransportOptions() {
+  return {
     host: TITAN_SMTP_HOST,
     port: TITAN_SMTP_PORT,
     secure: TITAN_SMTP_PORT === 465, // true for 465 (SSL), false for 587 (STARTTLS)
@@ -386,9 +390,13 @@ function createSmtpTransport(): Transporter {
       pass: TITAN_PASSWORD,
     },
     tls: {
-      rejectUnauthorized: false, // Titan sometimes has intermediate cert issues
+      rejectUnauthorized: true,
     },
-  });
+  };
+}
+
+function createSmtpTransport(): Transporter {
+  return createTransport(smtpTransportOptions());
 }
 
 async function sendEmail(
@@ -563,6 +571,45 @@ async function main() {
     return;
   }
 
+  // ── Send guard: suppression, duplicate-send and ledger-state checks. Fails closed; no flag can bypass it. ──
+  let guardData: ReturnType<typeof loadSendGuardInput>;
+  try {
+    guardData = loadSendGuardInput();
+  } catch (err: any) {
+    console.error(`\n❌ Send guard could not load its safety data. Nothing was sent or drafted.\n   ${err.message}`);
+    process.exit(1);
+  }
+  for (const w of guardData.warnings) console.warn(`⚠️  ${w}`);
+  const guard = evaluateSendGuard(payloads, guardData.input);
+  if (guard.blocked.length > 0) {
+    console.log(`\n── Blocked by send guard (${guard.blocked.length}): not sent, not drafted ──`);
+    for (const b of guard.blocked) {
+      console.log(`  ⛔ #${b.payload.targetNumber} ${b.payload.companyName} [${b.kind}] ${b.code}: ${b.detail}`);
+    }
+  }
+  const kindOf = new Map<EmailPayload, OutboundEmailKind>(guard.allowed.map(a => [a.payload, a.kind]));
+  payloads = guard.allowed.map(a => a.payload);
+  if (payloads.length === 0) {
+    console.log('\n⚠️  No emails passed the send guard. Nothing to process.');
+    return;
+  }
+
+  // Every successful send is written to OUTREACH_TRACKER.md immediately, so a re-run cannot send it again.
+  // If that write fails, no further email is sent in this run.
+  const sentDate = new Date().toISOString().split('T')[0];
+  let ledgerBroken = false;
+  const recordLedger = (p: EmailPayload): void => {
+    const kind = kindOf.get(p) ?? 'FIRST_TOUCH';
+    try {
+      const rows = recordSuccessfulSend(p.targetNumber, kind, sentDate);
+      if (rows === 0) throw new Error('no matching row in a sendable state');
+      console.log(`  ✓ OUTREACH_TRACKER.md #${p.targetNumber} → ${kind === 'FOLLOW_UP' ? 'FOLLOWED_UP' : 'SENT'}`);
+    } catch (e: any) {
+      ledgerBroken = true;
+      console.error(`  ❌ OUTREACH_TRACKER.md was NOT updated for #${p.targetNumber} (${e.message}). Stopping further sends; update the ledger by hand.`);
+    }
+  };
+
   console.log(`\nProcessing ${payloads.length} email(s)...`);
 
   // Categorize by confidence and timezone
@@ -637,6 +684,10 @@ async function main() {
 
       for (let i = 0; i < sendNow.length; i++) {
         const { payload, window } = sendNow[i];
+        if (ledgerBroken) {
+          results.push({ targetNumber: payload.targetNumber, companyName: payload.companyName, to: payload.to, status: 'FAILED', error: 'not attempted: the ledger update for an earlier send failed' });
+          continue;
+        }
         console.log(`\n  📨 Sending #${payload.targetNumber} to ${payload.to}...`);
 
         const result = await sendEmail(transporter, payload);
@@ -646,6 +697,7 @@ async function main() {
 
         if (result.status === 'SENT') {
           console.log(`  ✓ Sent! (${window.reason})`);
+          recordLedger(payload);
         } else {
           console.log(`  ❌ Failed: ${result.error}`);
         }
@@ -729,7 +781,10 @@ function printSummary(results: SendResult[]) {
   console.log(`\n  Results saved to ${outputPath}`);
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+// Only runs as a command, so the send-window and TLS configuration can be imported by tests without sending anything.
+if (process.argv[1]?.endsWith('send-titan-smtp.ts')) {
+  main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}

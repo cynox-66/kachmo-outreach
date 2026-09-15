@@ -802,7 +802,12 @@ group('24. Production email dispatcher safety boundary (dry-run only, no SMTP po
   const patchSha = git('log', '--format=%H', '-1', '--fixed-strings', '--grep=fix: enforce suppression in titan dispatcher', '--', 'scripts/cron-dispatch.ts').stdout.trim();
   const numstat = patchSha ? git('diff', '--numstat', `${patchSha}^`, patchSha, '--', 'scripts/cron-dispatch.ts').stdout.trim().split(/\s+/) : [];
   assert(numstat.length >= 2 && Number(numstat[0]) > 0 && numstat[1] === '0', 'the committed dispatcher patch only adds lines; no existing production line was removed or edited', { patchSha, numstat });
-  assert(!!patchSha && git('diff', '--quiet', patchSha, '--', 'scripts/cron-dispatch.ts').status === 0, 'the dispatcher has not changed since the approved patch commit');
+  const sinceApproved = patchSha ? git('diff', '-U0', patchSha, '--', 'scripts/cron-dispatch.ts').stdout.split('\n').filter(l => /^[+-](?![+-])/.test(l)) : ['<no patch commit>'];
+  assert(
+    sinceApproved.length === 0 || (sinceApproved.length === 2 && sinceApproved[0] === '-      rejectUnauthorized: false,' && sinceApproved[1] === '+      rejectUnauthorized: true,'),
+    'since the approved suppression patch, the only dispatcher change is the approved TLS certificate-verification fix (Phase 1.1)',
+    sinceApproved
+  );
   assert(
     readFileSync(join(REPO, 'scripts/cron-dispatch.ts'), 'utf-8').includes(
       "interface EmailPayload {\n  to: string;\n  subject: string;\n  plainText: string;\n  htmlContent: string;\n  targetNumber: string;\n  companyName: string;\n  locationCity: string;\n  locationCountry: string;\n  confidence: 'HIGH' | 'LOW';\n}"
