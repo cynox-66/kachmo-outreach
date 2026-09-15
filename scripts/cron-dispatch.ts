@@ -235,7 +235,32 @@ async function main() {
   const readyToSend: { payload: EmailPayload; evalResult: WindowEvaluation }[] = [];
   const remainingInQueue: EmailPayload[] = [];
 
+  // Suppression safety check (fails closed): a missing or malformed list aborts the run before anything is sent.
+  const suppressionPath = path.resolve(process.cwd(), 'database/suppression.json');
+  if (!fs.existsSync(suppressionPath)) throw new Error('database/suppression.json missing — refusing to send');
+  const suppressionList: Array<{ email?: string; domain?: string; target_number?: string; phone?: string; lead_id?: string }> = JSON.parse(fs.readFileSync(suppressionPath, 'utf-8'));
+  if (!Array.isArray(suppressionList) || suppressionList.some(e => !e || typeof e !== 'object' || !(e.email || e.domain || e.target_number || e.phone || e.lead_id))) {
+    throw new Error('database/suppression.json is malformed — refusing to send');
+  }
+  const host = (s?: string) => (s ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  const suppressedEmails = new Set(suppressionList.map(e => (e.email ?? '').trim().toLowerCase()).filter(Boolean));
+  const suppressedDomains = new Set(suppressionList.map(e => host(e.domain)).filter(Boolean));
+  const suppressedTargets = new Set(suppressionList.map(e => e.target_number ?? '').filter(Boolean));
+  const trackerFile = path.resolve(process.cwd(), 'OUTREACH_TRACKER.md');
+  const trackerLines = fs.existsSync(trackerFile) ? fs.readFileSync(trackerFile, 'utf-8').split('\n') : [];
+
   for (const email of queue) {
+    // Checked before the time window, so --force cannot bypass it. Blocked entries are not re-queued.
+    const recipient = email.to.trim().toLowerCase();
+    if (suppressedTargets.has(email.targetNumber) || suppressedEmails.has(recipient) || suppressedDomains.has(recipient.split('@')[1])) {
+      console.log(`Target #${email.targetNumber} ${email.companyName} ⛔ suppressed — not sent`);
+      continue;
+    }
+    if (trackerLines.some(l => l.includes(`| **${email.targetNumber}** |`) && /\*\*(SENT|FOLLOWED_UP|REPLIED_\w+)\*\*/.test(l))) {
+      console.log(`Target #${email.targetNumber} ${email.companyName} ⛔ already sent per OUTREACH_TRACKER.md — not sent`);
+      continue;
+    }
+
     const tz = getTimezone(email.locationCity, email.locationCountry);
     const evalResult = evaluateWindow(tz, force);
 
