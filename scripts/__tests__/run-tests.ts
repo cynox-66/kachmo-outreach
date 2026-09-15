@@ -290,7 +290,7 @@ group('7. Calling queue');
   const sup = loadSuppression();
   assert(cq.cards.every(c => { const l = all.find(x => x.lead_id === c.lead_id)!; return phoneEligibility(l).ok && !outreachBlock(l, sup).blocked; }), 'every call card satisfies calling eligibility');
   assert(cq.cards.every(c => all.filter(o => o.lead_id !== c.lead_id && o.company_name.length >= 6).every(o => !`${c.recommended_opening} ${c.bridge}`.includes(o.company_name))), 'no call card mentions another company');
-  const templates = ['queue-calls.ts', 'queue-whatsapp.ts'].map(f => readFileSync(join(REPO, 'scripts', f), 'utf-8')).join('\n');
+  const templates = ['scripts/queue-calls.ts', 'scripts/queue-whatsapp.ts', 'core/queues/calls.ts', 'core/queues/whatsapp.ts'].map(f => readFileSync(join(REPO, f), 'utf-8')).join('\n');
   assert(!/Advani|Sunita|Akshay|Royal Heritage|Bombay Shirt/.test(templates), 'no hard-coded prospect names in templates');
 
   assert(/No lead matches/.test(errorOf(() => logCallOutcome(['--lead=999', '--outcome=INTERESTED'])) ?? ''), 'calls:log fails on a nonexistent lead');
@@ -434,7 +434,7 @@ group('12. Deduplication (non-destructive)');
 group('13. Email subsystem boundaries');
 {
   const protectedScripts = ['send-titan-smtp.ts', 'create-titan-drafts.ts', 'cron-dispatch.ts'];
-  const v2Files = listTs(join(REPO, 'scripts')).filter(f => !protectedScripts.some(p => f.endsWith(join('scripts', p))) && !f.endsWith('run-tests.ts'));
+  const v2Files = [...listTs(join(REPO, 'scripts')), ...listTs(join(REPO, 'core'))].filter(f => !protectedScripts.some(p => f.endsWith(join('scripts', p))) && !f.endsWith('run-tests.ts') && !f.includes(join('__tests__', 'golden')) && !f.endsWith('golden-v1.ts'));
   const mailers = v2Files.filter(f => /from ['"](nodemailer|imapflow)['"]|require\(['"](nodemailer|imapflow)['"]\)|createTransport\(|\.sendMail\(|\.append\(/i.test(readFileSync(f, 'utf-8')));
   assert(mailers.length === 0, 'no second email pipeline in V2 code', mailers);
   const network = v2Files.filter(f => /\bfetch\(|https?\.request|axios|twilio|graph\.facebook\.com|puppeteer|playwright|whatsapp-web/i.test(readFileSync(f, 'utf-8')));
@@ -531,7 +531,7 @@ group('17. Outreach template safety (rendered with a synthetic prospect)');
     }
   }
   assert(rendered === 14 && hits.length === 0, 'every call card and WhatsApp draft (all archetypes, both bases) has no real prospect names, domains, URLs or Kachmo claims', hits.slice(0, 6));
-  const src = ['queue-calls.ts', 'queue-whatsapp.ts', 'lib/text.ts'].map(f => readFileSync(join(REPO, 'scripts', f), 'utf-8')).join('\n');
+  const src = ['scripts/queue-calls.ts', 'scripts/queue-whatsapp.ts', 'scripts/lib/text.ts', 'core/queues/calls.ts', 'core/queues/whatsapp.ts', 'core/util/text.ts'].map(f => readFileSync(join(REPO, f), 'utf-8')).join('\n');
   assert(found(src).length === 0, 'template source files contain no real prospect names or domains', found(src).slice(0, 5));
   assert(!/https?:\/\/(?!wa\.me\/)/.test(src), 'template source files contain no hard-coded URLs except wa.me');
 }

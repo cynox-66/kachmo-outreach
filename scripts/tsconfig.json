@@ -1,0 +1,16 @@
+{
+  "//": "Type-check only (tsx does not read this file: it resolves tsconfig from the working directory, and the repo root has none, so the cron runtime is unaffected).",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["./**/*.ts", "../core/**/*.ts"],
+  "exclude": ["../core/platform.d.ts"]
+}
