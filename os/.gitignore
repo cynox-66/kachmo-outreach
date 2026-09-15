@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets and local databases never enter git
+.env
+.env.*
+!.env.example
+.pglite/
+*.local.db
+
+# Migration rehearsal output can contain prospect data
+server/db/migration/out/

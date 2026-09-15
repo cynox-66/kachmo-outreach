@@ -9,7 +9,7 @@
 | 1.0 Pure logic extraction | ✅ complete |
 | 1.0A Golden behaviour verification | ✅ complete — 120/120 leads identical |
 | 1.1 Titan security hardening | ✅ complete (isolated commit, not pushed) |
-| 1.2 Hosted database foundation | not started |
+| 1.2 Hosted database foundation | ✅ complete — schema, migrations, rehearsal tooling; **no real migration performed** |
 | 1.3 Authentication + authorisation | not started |
 | 1.4 Application shell | not started |
 
@@ -192,3 +192,93 @@ unchanged. No GitHub Action was triggered; nothing was pushed.
 - The cron's own suppression check does not match lead_id-only entries (`suppress:add` always also writes the target).
 - The protections reach GitHub only once these commits are pushed; until then the cron runs the previous code
   (which already has suppression, but no certificate verification).
+
+---
+
+## Phase 1.2 — Hosted database foundation
+
+### Git state at start
+`main` at `3227afd` (Titan hardening), 3 commits ahead of `origin/main`, not pushed.
+
+### Placement
+New package `os/` with its own `package.json` / lockfile (Phase 0 decision D6). The repository root `package.json`,
+lockfile and workflow are unchanged, so the cron's `npm install` + `npx tsx scripts/cron-dispatch.ts` is unaffected.
+Versions checked on npm at install time and pinned exactly. ESLint pinned to 9.39.5 because `eslint-config-next`
+16.3.5's plugins declare `eslint ≤ 9` (ESLint 10 produced invalid peer dependencies).
+
+### Schema (12 tables, each justified in `os/README.md`)
+Auth: `user` (never deleted, `deactivated_at`), `session`, `account`, `verification`, `user_role`.
+Domain: `methodology_version`, `lead` (lossless `record` jsonb = source of truth + typed projections + `version`),
+`lead_evaluation` (append-only), `lead_evidence` (Phase 2 provenance structure, not populated),
+`suppression_entry` (append-only, attributed single revocation), `analytics_event`, `audit_event` (append-only).
+Deliberately deferred: call / WhatsApp / pipeline tables (would duplicate `lead.record` → two sources of truth),
+research missions / imports (Phase 2).
+
+Migrations: `0000_initial_schema.sql` (drizzle-kit generated, reviewed) and `0001_append_only_guards.sql` (hand-written
+triggers: append-only history, no deletion of leads/users/suppression, single attributed revocation, immutable activated
+methodology). No destructive statement in any migration (tested).
+
+### Methodology architecture
+`os/server/methodology/v1.ts` describes Methodology v1.0 (gate list, outcome vocabulary, provenance levels, scoring
+thresholds and basis, archetype scope defaults, calling limits) by importing the constants **from `core/`**, links the
+golden baseline, records the `isUrl` limitation, and lists the conflicting prose versions as unadopted proposals. It is
+seeded as the single ACTIVE methodology on import. It describes the engine; it does not configure or change it.
+
+### Migration tooling (dry run only)
+
+| File | Role |
+|---|---|
+| `server/db/migration/source.ts` | Loads the canonical JSON data from a snapshot directory; validates with `core/` (`validateLeadDatabase`, `findInvariantViolations`, `suppressionEntryProblems`) plus UUID identities, jsonb-storability and strict event parsing. Fails closed. |
+| `server/db/migration/transform.ts` | Pure record → row mapping and inverses. |
+| `server/db/migration/import.ts` | One transaction; refuses non-empty tables; seeds methodology v1.0; audit event with counts + file hashes. |
+| `server/db/migration/reconcile.ts` | 14 before/after checks incl. core engine parity from stored data. Details list target numbers only. |
+| `server/db/migration/rehearse.ts` | `npm run db:rehearse`: git snapshot → in-memory PostgreSQL → import → reconcile → second-import refusal → report (gitignored). |
+| `server/db/migrate.ts` | `npm run db:migrate`: schema only, refuses without `DATABASE_URL` and exact `KACHMO_MIGRATE_CONFIRM_HOST`. |
+
+### Rehearsal result (real data, commit `3227afd`, in-memory PostgreSQL)
+
+| Check | Result |
+|---|---|
+| Lead count | 120 → 120 ✅ |
+| Every lead_id present, none extra; target → lead_id mapping identical; no duplicates | ✅ |
+| Every stored record identical to source (canonical SHA-256) | 120/120 ✅ |
+| Typed columns equal stored record | ✅ |
+| Contact provenance (status + source) preserved | 120/120 ✅ |
+| Invariant violations in stored data | 0 ✅ |
+| Suppression identical and ordered | 0 → 0 ✅ |
+| Analytics events identical and ordered | 240 → 240 ✅ |
+| Core gates / completeness / scores / suppression blocks from stored data = from source | 120/120 ✅ |
+| Second import refused | ✅ |
+
+### Migration status
+**No real migration performed. No hosted database has been created or connected to.** Only in-memory PGlite
+databases were used.
+
+### Tests
+
+| Suite | Result |
+|---|---|
+| `os` database foundation (`cd os && npm test`) | **60 passed / 0 failed** (new) |
+| Root `npm test` (legacy + golden + Titan) | **225 + 42 + 56 = 323 passed / 0 failed** (unchanged) |
+| Root `npm run typecheck` | clean |
+| `os` `tsc --noEmit` (strict, includes `core/`) | clean |
+| `os` ESLint (next core-web-vitals + typescript, no-restricted-imports for mailers / scripts) | **clean — 0 errors, 0 warnings** (1 error + 4 warnings fixed before commit) |
+
+The 60 `os` tests cover: schema value lists equal `core/` sets; exactly the 12 tables; no destructive migration
+statement; full real-data rehearsal (every reconciliation check); invalid provenance, record/identity mismatch and
+DNC-without-DISQUALIFIED rejected; lead/user/suppression/audit/analytics deletion and truncation blocked; audit
+edits blocked; namespaced audit actions; unknown roles rejected; suppression identifier immutability and single
+attributed revocation; activated methodology immutable and undeletable; single ACTIVE version; reconciliation detects a
+silently edited provenance value and never prints contact data; failed import leaves zero rows (rollback); populated
+tables refuse import; one audit event without contact data; source rejection for missing file, corrupt JSON, duplicate
+lead, non-UUID id, invariant violation, truncated event line, identifier-less suppression; `db:migrate` refusals without
+URL, without or with mismatched host confirmation (credentials never printed), and no data import in it.
+
+Production data hashed before/after all runs: unchanged.
+
+### Risks
+- PGlite is PostgreSQL compiled to WASM; Neon behaviour is expected to match for this schema, but the first run of
+  `db:migrate` against a Neon **branch** is still the real proof.
+- `lead.record` jsonb normalises key order; losslessness is therefore proven by canonical hashing (tested), not bytes.
+- Triggers protect against the application's connection; a database owner role can still disable them. Production
+  should use a separate least-privilege role for the app (1.4 deployment step).

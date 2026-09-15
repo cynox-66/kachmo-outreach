@@ -1,0 +1,43 @@
+{
+  "name": "kachmo-outbound-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kachmo Outbound OS — private internal application around the Kachmo core engine (../core).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx tests/run.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:rehearse": "tsx server/db/migration/rehearse.ts",
+    "db:migrate": "tsx server/db/migrate.ts",
+    "owner:bootstrap": "tsx server/auth/bootstrap-owner.ts"
+  },
+  "engines": {
+    "node": ">=20.9"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.1.0",
+    "better-auth": "1.7.5",
+    "drizzle-orm": "0.45.2",
+    "next": "16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@types/node": "26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.5",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  }
+}
