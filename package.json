@@ -29,14 +29,15 @@
     "audit:baseline": "tsx scripts/audit-baseline.ts",
     "war-room": "tsx scripts/war-room.ts",
     "analytics:weekly": "tsx scripts/analytics-weekly.ts",
-    "test": "tsx scripts/__tests__/run-tests.ts && tsx scripts/__tests__/golden-v1.ts && tsx scripts/__tests__/golden-write-paths.ts && tsx scripts/__tests__/titan-guard.ts && tsx scripts/__tests__/core-extraction.ts && tsx scripts/__tests__/reconciliation.ts",
+    "test": "tsx scripts/__tests__/run-tests.ts && tsx scripts/__tests__/golden-v1.ts && tsx scripts/__tests__/golden-write-paths.ts && tsx scripts/__tests__/titan-guard.ts && tsx scripts/__tests__/core-extraction.ts && tsx scripts/__tests__/reconciliation.ts && tsx scripts/__tests__/research-foundation.ts",
     "test:legacy": "tsx scripts/__tests__/run-tests.ts",
     "test:golden": "tsx scripts/__tests__/golden-v1.ts",
     "test:titan": "tsx scripts/__tests__/titan-guard.ts",
     "typecheck": "tsc -p core/tsconfig.json && tsc -p scripts/tsconfig.json",
     "test:golden-writes": "tsx scripts/__tests__/golden-write-paths.ts",
     "test:core": "tsx scripts/__tests__/core-extraction.ts",
-    "test:reconciliation": "tsx scripts/__tests__/reconciliation.ts"
+    "test:reconciliation": "tsx scripts/__tests__/reconciliation.ts",
+    "test:research": "tsx scripts/__tests__/research-foundation.ts"
   },
   "author": "Dev Jaiswal (Kachmo Studios)",
   "license": "MIT",
