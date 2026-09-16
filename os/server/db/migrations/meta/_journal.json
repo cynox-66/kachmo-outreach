@@ -15,6 +15,13 @@
       "when": 1789456974338,
       "tag": "0001_append_only_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789529610970,
+      "tag": "0002_auth_rate_limit",
+      "breakpoints": true
     }
   ]
 }

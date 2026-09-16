@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, text, timestamp, boolean, index, primaryKey, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, bigint, index, primaryKey, check } from 'drizzle-orm/pg-core';
 
 /**
  * Better Auth core tables (user, session, account, verification) in the layout its Drizzle adapter expects, plus
@@ -64,6 +64,17 @@ export const verification = pgTable(
   },
   t => [index('verification_identifier_idx').on(t.identifier)]
 );
+
+/**
+ * Better Auth's database-backed rate-limit counters (sign-in and other auth endpoints). Stored in Postgres rather than
+ * memory so limits hold across serverless instances.
+ */
+export const rateLimit = pgTable('rate_limit', {
+  id: text('id').primaryKey(),
+  key: text('key').notNull().unique(),
+  count: integer('count').notNull(),
+  lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
+});
 
 /** Kept in sync with os/server/authz/permissions.ts (asserted by tests). */
 export const ROLE_VALUES = ['OWNER', 'ADMIN', 'RESEARCHER', 'OUTREACH', 'INTERN', 'VIEWER'] as const;

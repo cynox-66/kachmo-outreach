@@ -2,7 +2,7 @@
  * Kachmo Outbound OS — server foundation tests. Database tests run against in-memory PostgreSQL (PGlite) with the real
  * migrations applied. No hosted database, no network, and the repository working tree is never written.
  */
-import { readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -52,7 +52,10 @@ group('1. Schema mirrors core/ (no second definition of allowed values)');
   assert(same(listOf('lead_research_state_check'), RESEARCH_STATE_VALUES), 'research states equal core RESEARCH_STATE_VALUES');
   assert(same(listOf('user_role_role_check'), new Set(schema.ROLE_VALUES)), 'role check equals ROLE_VALUES');
   const tables = [...sql.matchAll(/CREATE TABLE "([a-z_]+)"/g)].map(m => m[1]).sort();
-  assert(JSON.stringify(tables) === JSON.stringify(['account', 'analytics_event', 'audit_event', 'lead', 'lead_evaluation', 'lead_evidence', 'methodology_version', 'session', 'suppression_entry', 'user', 'user_role', 'verification']), 'exactly the 12 justified tables exist', tables);
+  const allSql = readdirSync(join(OS, 'server/db/migrations')).filter(f => f.endsWith('.sql')).map(f => readFileSync(join(OS, 'server/db/migrations', f), 'utf-8')).join('\n');
+  const allTables = [...allSql.matchAll(/CREATE TABLE "([a-z_]+)"/g)].map(m => m[1]).sort();
+  assert(JSON.stringify(allTables) === JSON.stringify(['account', 'analytics_event', 'audit_event', 'lead', 'lead_evaluation', 'lead_evidence', 'methodology_version', 'rate_limit', 'session', 'suppression_entry', 'user', 'user_role', 'verification']), 'exactly the 13 justified tables exist across all migrations', allTables);
+  assert(tables.length === 12, 'the initial migration created the 12 Phase 1.2 tables', tables);
   const statements = [sql, readFileSync(join(OS, 'server/db/migrations/0001_append_only_guards.sql'), 'utf-8')]
     .flatMap(f => f.split('--> statement-breakpoint'))
     .map(s => s.split('\n').filter(l => !l.trim().startsWith('--')).join('\n').trim())

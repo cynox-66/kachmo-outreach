@@ -106,11 +106,71 @@ See `.env.example`. All are server-only; none may be prefixed `NEXT_PUBLIC_`.
 
 ## Authentication
 
-_Phase 1.3._
+Better Auth with email + password, sessions in Postgres (`server/auth/auth.ts`). Policy constants live in
+`AUTH_POLICY` and are pinned by tests.
+
+- **Invite-only.** Public sign-up is disabled (`disableSignUp`). Accounts are created by the owner bootstrap or, later,
+  by a user manager inside the application.
+- **No email-based password reset.** This application never sends email (Titan owns email), so `sendResetPassword` is
+  not configured. An owner resets a password; `revokeSessionsOnPasswordReset` signs the account out everywhere.
+- **Passwords**: 12–128 characters, stored only as scrypt hashes (Better Auth default, `node:crypto`).
+- **Sessions**: 12 hours, refreshed at most hourly, validated against the database on every request
+  (`cookieCache` disabled, so deactivation takes effect immediately).
+- **Cookies**: `kachmo.` prefix, `HttpOnly`, `SameSite=Lax`, `Secure` and `__Secure-` prefixed in production.
+- **Origin and CSRF checks stay on**; the only trusted origin is `BETTER_AUTH_URL`.
+- **Rate limiting** is database-backed (holds across serverless instances): 5 sign-in attempts per 15 minutes per IP,
+  3 password-reset requests per hour, 100 requests per minute overall. On Vercel the client IP comes from
+  `x-forwarded-for`, which the platform sets; do not run this behind a proxy that lets clients forge it.
+- **Deactivated users** (`user.deactivated_at`) cannot create a session and resolve to no actor.
+
+### First owner (`npm run owner:bootstrap`)
+
+Creates the first OWNER on a fresh deployment and refuses once any OWNER exists. Email and name come from
+`KACHMO_BOOTSTRAP_OWNER_EMAIL` / `KACHMO_BOOTSTRAP_OWNER_NAME`; the password is typed interactively (hidden, twice) or
+piped on stdin — never in source, never in an environment variable, never logged. The action is audited. Remove the
+bootstrap variables afterwards. Further accounts are created by an owner from inside the application.
 
 ## Authorization
 
-_Phase 1.3._
+Deny by default. Roles are read from `user_role` on every request; nothing the browser sends is trusted, and hidden UI
+is never a security control.
+
+| Role | Holds |
+|---|---|
+| OWNER | everything, including `methodology.manage`, `suppression.revoke`, `api_clients.manage` |
+| ADMIN | everything except those three |
+| RESEARCHER | view leads + contacts, create/edit leads, create and upload research, view suppression, analytics |
+| OUTREACH | view leads + contacts, call / WhatsApp / email-prepare, email ledger, pipeline, create suppression, analytics |
+| INTERN | view leads (contacts masked), create and upload research — no approve, export, contact or suppression |
+| VIEWER | view leads (masked), analytics |
+
+`server/authz/permissions.ts` is pure and testable: `permissionsFor(roles)`, `hasPermission`, `canAssignRole`
+(only an OWNER may grant OWNER). `server/authz/authorize.ts` resolves the actor from the database and
+`assertPermission` throws. In Next.js, use `requirePermission('lead.approve')` from `server/auth/current-actor.ts`
+inside **every** server action, route handler and data loader; denials are audited as `authz.denied`.
+
+No permission exists to send email, force or bypass anything.
+
+## Audit
+
+`server/audit/audit.ts` appends to `audit_event` (append-only in the database). Actions are namespaced and validated
+(`lead.approve`, `auth.sign_in_failed`). Metadata, `before` and `after` are redacted first: keys naming contact values,
+passwords, tokens or cookies are replaced, and email/phone-shaped strings in free text are masked. IP addresses are
+stored only as a keyed hash.
+
+## API authentication (planned, Phase 4)
+
+For IDE-generated research imports: bearer tokens issued per client, stored only as a hash in an `api_client` table
+with scopes, `created_by`, `last_used_at` and `revoked_at`; rate limited per client; every request audited; payloads
+schema-validated and routed into the review queue — never straight into the canonical lead database. No token grants
+send, force or suppression-bypass abilities.
+
+## Upload security (planned, Phase 2)
+
+Research report uploads: authenticated and permission-checked (`research.upload`), size-capped, type sniffed by magic
+bytes (not by filename or client MIME), stored privately under a random key (never the user's filename), never served
+back as HTML, never executed, and text-extracted in isolation. Extracted content is untrusted input: it is treated as
+data only — never as instructions — and reaches leads only through human review.
 
 ## Deployment
 

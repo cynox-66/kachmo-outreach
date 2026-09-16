@@ -10,7 +10,7 @@
 | 1.0A Golden behaviour verification | ✅ complete — 120/120 leads identical |
 | 1.1 Titan security hardening | ✅ complete (isolated commit, not pushed) |
 | 1.2 Hosted database foundation | ✅ complete — schema, migrations, rehearsal tooling; **no real migration performed** |
-| 1.3 Authentication + authorisation | not started |
+| 1.3 Authentication + authorisation | ✅ complete |
 | 1.4 Application shell | not started |
 
 ---
@@ -282,3 +282,61 @@ Production data hashed before/after all runs: unchanged.
 - `lead.record` jsonb normalises key order; losslessness is therefore proven by canonical hashing (tested), not bytes.
 - Triggers protect against the application's connection; a database owner role can still disable them. Production
   should use a separate least-privilege role for the app (1.4 deployment step).
+
+---
+
+## Phase 1.3 — Authentication and authorisation
+
+### Git state at start
+`main` at `0ec36e9` (database foundation), 4 commits ahead of `origin/main`, not pushed.
+
+### What was built
+
+| File | Role |
+|---|---|
+| `os/server/auth/auth.ts` | Better Auth factory. Invite-only (`disableSignUp`), 12–128-char passwords (scrypt), 12-hour DB-backed sessions validated on every request, `kachmo.`-prefixed `HttpOnly` / `SameSite=Lax` / `Secure` (`__Secure-`) cookies, origin + CSRF checks on, database-backed rate limits (sign-in 5 / 15 min per IP), deactivated users refused at session creation. No `sendResetPassword`: the OS never sends email. |
+| `os/server/auth/bootstrap-owner.ts` | First-OWNER bootstrap. Refuses when an OWNER exists or the email is taken; password from hidden TTY input or stdin, never from source/env/logs; audited. |
+| `os/server/auth/instance.ts` | `server-only` lazy singleton (pool + auth) for Next.js. |
+| `os/server/auth/current-actor.ts` | `server-only` `getCurrentActor` / `requireActor` / `requirePermission` for pages, actions and route handlers; audits denials. |
+| `os/server/authz/permissions.ts` | Pure permission model: 25 permissions × 6 roles, deny by default, `canAssignRole` (only OWNER grants OWNER). |
+| `os/server/authz/authorize.ts` | Actor resolution from the database (roles never from the client), `assertPermission`. |
+| `os/server/audit/audit.ts` + `redact.ts` | Append-only audit writes with validated namespaced actions, redaction of contact values/secrets, keyed IP hashing. |
+| `os/server/db/client.ts` | `pg` pool with verified TLS. Chosen over the Neon HTTP driver because Better Auth's adapter needs real transactions. |
+| `0002_auth_rate_limit.sql` | `rate_limit` table for database-backed limits (13th table). |
+
+### Decisions
+- **No self-service password reset**, because it would require sending email and this application must never become a
+  second email path. Owners reset passwords; all sessions are revoked on reset.
+- **`pg` driver** rather than Neon HTTP: the adapter wraps writes in interactive transactions.
+- **Roles in `user_role`**, not in the session or a JWT claim, so deactivation and role changes take effect at once.
+
+### Tests
+
+| Suite | Result |
+|---|---|
+| `os` auth/authz/audit (`npm run test:auth`) | **60 passed / 0 failed** (new) |
+| `os` database foundation (`npm run test:db`) | **61 passed / 0 failed** (13-table assertion added) |
+| `os` `tsc --noEmit` strict | clean |
+| `os` ESLint | clean |
+| Root `npm test` (legacy + golden + Titan) | unchanged — see below |
+
+Auth tests cover: config refusing a short secret or invalid base URL; policy pinned (≥12-char passwords, ≤5 sign-in
+attempts, ≤12 h sessions); public sign-up disabled and no account created; bootstrap refusing short password, invalid
+email, password containing the email name, and a second owner; exactly one OWNER role; password stored only as a hash;
+bootstrap audited without the email; sign-in; `__Secure-kachmo.session_token` with HttpOnly/SameSite/Secure; password
+never echoed; server-side session validation; actor roles/permissions from the database; tampered cookie and missing
+cookie rejected; wrong password and unknown email indistinguishable (no account enumeration); sign-in rate limited per
+IP (correct password also refused while limited) with counters in the database; untrusted origin rejected; deactivated
+user cannot sign in and existing sessions resolve to no actor; no-roles user has zero permissions; INTERN denied
+contacts/export/approve/suppression/outreach/user-management; role matrix, unknown roles granting nothing, OWNER-only
+OWNER assignment, database role list identical to the code list, no send/force/bypass permission; audit redaction,
+invalid action rejected, stored before/after free of contact values; no `NEXT_PUBLIC_` variable defined or read;
+`server-only` on the auth instance and actor modules; no client component importing server auth/db/authz/audit; the
+bootstrap never logging the password nor reading it from the environment.
+
+### Risks
+- Rate limiting trusts `x-forwarded-for`; correct on Vercel, wrong behind a proxy that lets clients set it.
+- Two bootstrap processes run concurrently against an empty database could both create an owner (single-operator,
+  one-time command; the second run is refused once a row exists).
+- Owner password resets are not implemented yet (no UI until 1.4); until then an owner without a password must be
+  re-bootstrapped on a fresh deployment.
