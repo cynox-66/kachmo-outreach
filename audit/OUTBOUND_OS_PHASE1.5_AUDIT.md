@@ -3,7 +3,7 @@
 > **Date:** 2026-09-16
 > **Baseline commit (golden behaviour):** `48cfbc0a8d3364fc95654c68b9764cc8af7013ab`
 > **Phase 1 head (start of this phase):** `815c3d156bd6a69c706dcf76b611b9306f5b46fc`
-> **Phase 1.5 code head:** `ccbade3cba56161765265f3d188dbc78ae77ae4b` (this document is committed on top of it)
+> **Phase 1.5 head:** `bb7872f29ad8…` (see §1 for the full list)
 > **Pushed:** NO · **Deployed:** NO · **Production migration:** NO · **Outreach sent:** NO
 
 Phase 1.5 turns the Phase 1 foundation into a cutover-ready architecture. It changes **no** Methodology v1.0 behaviour, creates **no** hosted database, migrates **no** production data, and performs **no** research.
@@ -18,8 +18,8 @@ Phase 1.5 turns the Phase 1 foundation into a cutover-ready architecture. It cha
 | `f567cde3030766c363e132bc4da02a6d09add0d2` | 1.5C — exact-commit migration manifest and failure-case rehearsal |
 | `de2fa817441ed54010b48456a92913cdc892d11b` | 1.5D — single-writer ownership, drift detection, Titan boundary |
 | `ccbade3cba56161765265f3d188dbc78ae77ae4b` | 1.5E — research foundation (evidence, reports, candidates, extraction, briefs, inventory) |
-
-Plus one documentation commit carrying this audit and ADRs 009–014.
+| `cc8a7ea1c366bc895e160da217f613a42e368da1` | 1.5F — this audit document and ADRs 009–014 |
+| `bb7872f29ad8…` | fix — dirty-tree detection mis-sliced the first `git status --porcelain` line |
 
 All local. Nothing pushed. History was not rewritten; the six Phase 1 commits are intact.
 
@@ -103,7 +103,13 @@ Refusals are asserted separately from successes, because a refusal silently beco
 - row counts and lead IDs on both sides
 - contact-provenance tallies — counts only, no contact values anywhere
 
-Latest rehearsal from `f35df37`: **120 leads · 0 suppression entries · 240 events · 13 tables · 139 constraints · 36 indexes · 7 triggers**, all 14 reconciliation checks passing, second import refused, source and target record hashes identical.
+Rehearsal from a **clean tree at `bb7872f`**: **120 leads · 0 suppression entries · 240 events · 13 tables · 139 constraints · 36 indexes · 7 triggers**, all 14 reconciliation checks passing, second import refused, source and target record hashes identical, and **no dirty-tree warning** — so the run is reproducible from its own manifest.
+
+### A bug this found in its own tooling
+
+The dirty-tree check trimmed the whole `git status --porcelain` output before slicing each line. Porcelain lines begin with a two-character status column, so trimming ate the leading space of the **first** line and mis-sliced its filename: `" M AADI_DAILY_CALLS.md"` became `"ADI_DAILY_CALLS.md"`, matching no generated-artifact pattern. Every rehearsal was therefore reported as irreproducible, including clean ones.
+
+The classification is now `significantDirtyPaths()`, a pure exported function tested directly (including the first-line case), and the manifest carries `codeTreeDirtyPaths` so an irreproducible run names exactly which files made it so. Fixed in `bb7872f`.
 
 ### Failure cases proven (59 checks)
 
@@ -208,15 +214,18 @@ Added in Phase 1.5:
 | reconciliation | — | **59** |
 | research foundation | — | **132** |
 | OS database | 61 | 61 |
-| OS migration | — | **59** |
+| OS migration | — | **68** |
 | OS auth/authz/audit | 61 | 61 |
 | OS shell | 35 | 35 |
 | OS sync boundary | — | **29** |
-| **Total** | **480** | **907** |
+| **Total** | **480** | **916** |
 
 Typecheck clean (core, scripts, os). Lint clean. `next build` succeeds.
 
-A note on test integrity: the single-implementation detectors in `core-extraction.ts` each carry a **vacuity guard** asserting the pattern actually matches inside `core/`. That guard caught one dead regex during development, which is why it is there.
+Two notes on test integrity:
+
+- The single-implementation detectors in `core-extraction.ts` each carry a **vacuity guard** asserting the pattern actually matches inside `core/`. That guard caught one dead regex during development, which is why it is there.
+- The dirty-tree classifier is tested as a pure function rather than against the live working tree, because a test that reads real `git status` output would have passed on the buggy implementation.
 
 ---
 
