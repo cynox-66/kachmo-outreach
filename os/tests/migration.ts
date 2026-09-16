@@ -19,7 +19,7 @@ import { createRehearsalDatabase } from '../server/db/rehearsal-db';
 import { loadCanonicalSource, type CanonicalSource } from '../server/db/migration/source';
 import { importCanonicalSource } from '../server/db/migration/import';
 import { reconcile } from '../server/db/migration/reconcile';
-import { rehearse, snapshotFromGit, codeRevision } from '../server/db/migration/rehearse';
+import { rehearse, snapshotFromGit, codeRevision, significantDirtyPaths } from '../server/db/migration/rehearse';
 import { describeSchema } from '../server/db/migration/manifest';
 import { canonicalSha256 } from '../server/db/migration/canonical';
 import { leadRow } from '../server/db/migration/transform';
@@ -81,6 +81,25 @@ group('1. The rehearsal is an exact-commit, reproducible record');
   assert(!/@|\+\d{6}/.test(JSON.stringify(a.manifest)), 'the manifest holds no contact data');
   assert(typeof a.manifest.codeTreeDirty === 'boolean' && a.manifest.codeCommit === codeRevision().commit, 'the manifest records which code produced it, and whether the tree was dirty');
   assert(Object.values(a.manifest.source.provenance.phoneStatus).reduce((x, y) => x + y, 0) === 120, 'the manifest tallies contact provenance for every lead');
+  assert(a.manifest.codeTreeDirty === (a.manifest.codeTreeDirtyPaths.length > 0), 'a dirty tree always names the paths that made it dirty');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('1b. Reproducibility is judged on real inputs, not on regenerated artifacts');
+{
+  // Every porcelain line starts with a two-character status column. The FIRST line's leading space is the one a
+  // naive trim() eats, which silently mis-slices its filename — the regression this group exists to prevent.
+  const porcelain = ' M AADI_DAILY_CALLS.md\n M queues/calling-queue.json\n M database/research-queue.json\n';
+  assert(significantDirtyPaths(porcelain).length === 0, 'modified operator artifacts do not make a rehearsal irreproducible', significantDirtyPaths(porcelain));
+  assert(significantDirtyPaths(' M AADI_DAILY_CALLS.md\n').length === 0, 'and that holds when the artifact is the FIRST line (the trim() regression)');
+  assert(significantDirtyPaths('?? AADI_DAILY_CALLS.md\n').length === 0, 'whatever its status code');
+
+  const real = ' M core/qualification/gates.ts\n M AADI_DAILY_CALLS.md\n';
+  assert(significantDirtyPaths(real).length === 1 && significantDirtyPaths(real)[0] === 'core/qualification/gates.ts', 'a modified source file does, and is named exactly');
+  assert(significantDirtyPaths('M  scripts/leads-qualify.ts\n')[0] === 'scripts/leads-qualify.ts', 'a staged change counts too');
+  assert(significantDirtyPaths('').length === 0 && significantDirtyPaths('\n\n').length === 0, 'a clean tree produces nothing');
+  assert(significantDirtyPaths(' M database/kachmo_leads.json\n').length === 1, 'the lead database is a migration INPUT, so changing it does make a rehearsal irreproducible');
+  assert(significantDirtyPaths(' M database/suppression.json\n').length === 1, 'and so is the suppression list');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

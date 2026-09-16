@@ -28,6 +28,8 @@ export interface MigrationManifest {
   codeCommit: string;
   /** True when the working tree has uncommitted changes — a rehearsal from a dirty tree is not reproducible. */
   codeTreeDirty: boolean;
+  /** The uncommitted paths that made it so. Regenerated operator artifacts are excluded. */
+  codeTreeDirtyPaths: string[];
   schema: {
     /** drizzle journal entries, in order: the schema version this rehearsal applied. */
     migrations: Array<{ tag: string; when: number }>;
@@ -116,7 +118,7 @@ export async function describeSchema(db: Db) {
 export async function buildManifest(
   db: Db,
   source: CanonicalSource,
-  meta: { sourceCommit: string; codeCommit: string; codeTreeDirty: boolean; generatedAt: string }
+  meta: { sourceCommit: string; codeCommit: string; codeTreeDirty: boolean; codeTreeDirtyPaths: string[]; generatedAt: string }
 ): Promise<MigrationManifest> {
   const ordered = [...source.leads].sort((a, b) => a.target_number.localeCompare(b.target_number));
   const sourceRecordsSha = sha256(ordered.map(l => source.leadRecordSha256.get(l.lead_id)).join('\n'));
@@ -145,6 +147,7 @@ export async function buildManifest(
     sourceCommit: meta.sourceCommit,
     codeCommit: meta.codeCommit,
     codeTreeDirty: meta.codeTreeDirty,
+    codeTreeDirtyPaths: meta.codeTreeDirtyPaths,
     schema: await describeSchema(db),
     source: {
       files: Object.fromEntries(Object.entries(SOURCE_FILES).map(([k, path]) => [k, { path, sha256: source.fileSha256[k] }])),

@@ -23,18 +23,33 @@ import { buildManifest, type MigrationManifest } from './manifest';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
 
-/** HEAD of the working tree and whether it is dirty — a rehearsal from a dirty tree is not reproducible. */
-export function codeRevision(repo = REPO): { commit: string; dirty: boolean } {
-  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();
-  const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf-8' }).trim();
-  // Generated operator artifacts are regenerated on every run and are not migration inputs.
-  const GENERATED = /(DAILY_WAR_ROOM|AADI_DAILY_CALLS|WHATSAPP_QUEUE|RESEARCH_QUEUE|WEEKLY_OUTBOUND_REPORT)\.md$|^queues\/|^database\/research-queue\.json$/;
-  const dirty = status
+/**
+ * Operator artifacts that are regenerated on every run. They are OUTPUTS of the engine, not inputs to a migration,
+ * so their being modified does not make a rehearsal irreproducible.
+ */
+const GENERATED_ARTIFACT = /(DAILY_WAR_ROOM|AADI_DAILY_CALLS|WHATSAPP_QUEUE|RESEARCH_QUEUE|WEEKLY_OUTBOUND_REPORT)\.md$|^queues\/|^database\/research-queue\.json$/;
+
+/**
+ * Classifies `git status --porcelain` output into the paths that actually make a rehearsal irreproducible.
+ *
+ * Pure so it can be tested directly. The input is NOT trimmed as a whole: every porcelain line begins with a
+ * two-character status column, and trimming the output would strip the first line's leading space and mis-slice
+ * its filename — which is exactly the bug this function exists to keep fixed.
+ */
+export function significantDirtyPaths(porcelain: string): string[] {
+  return porcelain
     .split('\n')
-    .filter(Boolean)
-    .map(l => l.slice(3))
-    .some(f => !GENERATED.test(f));
-  return { commit, dirty };
+    .filter(l => l.trim().length > 0)
+    .map(l => l.slice(3).trim())
+    .filter(f => f.length > 0 && !GENERATED_ARTIFACT.test(f));
+}
+
+/** HEAD of the working tree and whether it is dirty in a way that matters for reproducibility. */
+export function codeRevision(repo = REPO): { commit: string; dirty: boolean; dirtyPaths: string[] } {
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();
+  const porcelain = execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf-8' });
+  const dirtyPaths = significantDirtyPaths(porcelain);
+  return { commit, dirty: dirtyPaths.length > 0, dirtyPaths };
 }
 
 export function snapshotFromGit(ref: string, repo = REPO): { dir: string; commit: string } {
@@ -71,6 +86,7 @@ export async function rehearse(ref = 'HEAD'): Promise<RehearsalResult> {
       sourceCommit: commit,
       codeCommit: code.commit,
       codeTreeDirty: code.dirty,
+      codeTreeDirtyPaths: code.dirtyPaths,
       generatedAt: new Date().toISOString(),
     });
     let secondImportRefused = false;
@@ -107,7 +123,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(`   ${result.secondImportRefused ? '✅' : '❌'} a second import into a populated database is refused`);
       console.log(`   ${result.losslessByHash ? '✅' : '❌'} stored lead records hash identically to the source records`);
       const m = result.manifest;
-      console.log(`\n   manifest: source ${m.sourceCommit.slice(0, 12)} · code ${m.codeCommit.slice(0, 12)}${m.codeTreeDirty ? ' (DIRTY TREE — not reproducible)' : ''}`);
+      console.log(`\n   manifest: source ${m.sourceCommit.slice(0, 12)} · code ${m.codeCommit.slice(0, 12)}${m.codeTreeDirty ? ` (DIRTY TREE — not reproducible: ${m.codeTreeDirtyPaths.slice(0, 5).join(', ')})` : ''}`);
       console.log(`             schema ${m.schema.migrations.map(x => x.tag).join(', ')} · ${m.schema.tables.length} tables · ${m.schema.constraints.length} constraints · ${m.schema.indexes.length} indexes · ${m.schema.triggers.length} triggers`);
       console.log(`             rows ${Object.entries(m.target.rowCounts).map(([k, v]) => `${k}=${v}`).join(' ')}`);
       console.log(`   report: ${file}`);
