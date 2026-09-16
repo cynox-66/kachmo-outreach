@@ -11,3 +11,4 @@ database/.tmp_*
 database/kachmo_targets_export.csv
 audit/pre-pull-backup-*/
 audit/*/v2-data-snapshot/
+core/dist/
