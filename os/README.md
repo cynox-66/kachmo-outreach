@@ -25,9 +25,13 @@ Titan email (GitHub Actions cron, OUTREACH_TRACKER.md, scheduled-queue.json) sta
 cd Clients/mails/os
 npm install              # os/ has its own package.json; the repository root (and the Titan cron) is untouched
 cp .env.example .env.local
-npm test                 # database foundation tests on in-memory PostgreSQL (no hosted DB, no network)
+npm test                 # database + auth + shell suites (in-memory PostgreSQL, no hosted DB, no network)
+npm run test:db          # schema, constraints, history guards, migration rehearsal
+npm run test:auth        # authentication, authorization, audit
+npm run test:shell       # application shell boundaries (static)
 npm run typecheck        # strict, includes ../core
 npm run lint
+npm run build            # production build
 npm run db:rehearse      # migration dry run over the committed canonical data (see below)
 ```
 
@@ -172,10 +176,58 @@ bytes (not by filename or client MIME), stored privately under a random key (nev
 back as HTML, never executed, and text-extracted in isolation. Extracted content is untrusted input: it is treated as
 data only — never as instructions — and reaches leads only through human review.
 
+## Application shell
+
+App Router, every authenticated route server-rendered on demand (`force-dynamic`) — nothing about a lead is ever
+statically pre-rendered.
+
+| Route | Permission |
+|---|---|
+| `/` Today | `lead.view` |
+| `/leads` | `lead.view` (contacts shown only with `lead.view_contacts`) |
+| `/research` | `research.create` |
+| `/calls` | `outreach.call` |
+| `/whatsapp` | `outreach.whatsapp` |
+| `/email` Email ledger (read-only) | `email.view_ledger` |
+| `/pipeline` | `pipeline.update` |
+| `/analytics` | `analytics.view` |
+| `/settings` | `settings.manage` |
+| `/login`, `/api/auth/*` | public |
+
+- `app/(app)/layout.tsx` resolves the actor with `requireActor()`; each page calls `requirePermission(...)` again.
+  Navigation is filtered by permission for convenience only — hidden links are never the security boundary.
+- `proxy.ts` (Next 16's renamed middleware) only redirects based on the *presence* of a session cookie. It validates
+  nothing and makes no authorization decision.
+- Sign-in posts to a server action that calls Better Auth's own handler, so rate limiting, origin checks and cookie
+  attributes behave exactly as for any other client; the error never reveals whether an account exists, and failures
+  are audited with a hashed IP.
+- Pages contain no engine logic: they display stored values. With an empty database the dashboard says so plainly
+  instead of rendering zeros as if they were findings.
+
+### Note on imports
+
+`os/` uses extensionless relative imports because Turbopack does not map NodeNext `.js` specifiers onto `.ts` files.
+`core/` keeps its `.js` specifiers (required by NodeNext) and is currently imported by the app only as types. **Before
+the app imports `core/` at runtime** (Phase 1.5+), give `core/` a package entry point (a `package.json` with exports,
+consumed via `transpilePackages`) so those specifiers resolve in the bundler too.
+
 ## Deployment
 
-_Phase 1.4._ Vercel Pro (Hobby is non-commercial), project Root Directory = `Clients/mails/os`, Neon via the Vercel
-Marketplace.
+Not deployed yet. Planned: Vercel **Pro** (Hobby forbids commercial use), project **Root Directory =
+`Clients/mails/os`**, Neon Postgres via the Vercel Marketplace.
+
+Checklist for the first deployment:
+
+1. Create the Neon project and a development branch; keep production and development URLs separate.
+2. Set `DATABASE_URL`, `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` in Vercel (all server-side;
+   never `NEXT_PUBLIC_`).
+3. Apply the schema: `KACHMO_MIGRATE_CONFIRM_HOST=<neon host> npm run db:migrate`.
+4. Create the first owner: `npm run owner:bootstrap` (password typed at the prompt), then remove the bootstrap
+   variables.
+5. Give the application a least-privilege database role (no ability to drop the history triggers).
+6. Turn on Vercel deployment protection so only the team can reach preview URLs.
+
+Importing the real lead data is a separate, approved step — see "Migration safety" above.
 
 ## Security considerations (so far)
 

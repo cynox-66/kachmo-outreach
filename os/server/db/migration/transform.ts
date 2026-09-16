@@ -1,5 +1,5 @@
 import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '../../../../core/leads/schema.js';
-import { canonicalSha256 } from './canonical.js';
+import { canonicalSha256 } from './canonical';
 
 /**
  * Pure mapping from canonical records to table rows. The lead row's typed columns are projections of `record`;

@@ -1,14 +1,14 @@
 import { asc } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from '../schema/index.js';
+import * as schema from '../schema/index';
 import type { KachmoLead } from '../../../../core/leads/schema.js';
 import { findInvariantViolations } from '../../../../core/leads/invariants.js';
 import { evaluateLeadGates } from '../../../../core/qualification/gates.js';
 import { calculateLeadScores } from '../../../../core/scoring/score.js';
 import { outreachBlock } from '../../../../core/suppression/match.js';
-import type { CanonicalSource } from './source.js';
-import { canonicalJson, canonicalSha256 } from './canonical.js';
-import { leadProjection, suppressionEntryFromRow, analyticsEventFromRow } from './transform.js';
+import type { CanonicalSource } from './source';
+import { canonicalJson, canonicalSha256 } from './canonical';
+import { leadProjection, suppressionEntryFromRow, analyticsEventFromRow } from './transform';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

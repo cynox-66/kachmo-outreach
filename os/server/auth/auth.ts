@@ -4,7 +4,7 @@ import { nextCookies } from 'better-auth/next-js';
 import { APIError } from 'better-auth/api';
 import { eq } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from '../db/schema/index.js';
+import * as schema from '../db/schema/index';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

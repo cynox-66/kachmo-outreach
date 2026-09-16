@@ -6,14 +6,14 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
-import * as schema from '../server/db/schema/index.js';
-import { createRehearsalDatabase } from '../server/db/rehearsal-db.js';
-import { createAuth, AuthConfigError, AUTH_POLICY } from '../server/auth/auth.js';
-import { bootstrapOwner, BootstrapRefusedError } from '../server/auth/bootstrap-owner.js';
-import { loadActor, assertPermission, AuthenticationRequiredError, AuthorizationError } from '../server/authz/authorize.js';
-import { PERMISSIONS, ROLES, ROLE_PERMISSIONS, permissionsFor, hasPermission, canAssignRole } from '../server/authz/permissions.js';
-import { recordAudit, AuditInputError } from '../server/audit/audit.js';
-import { redact } from '../server/audit/redact.js';
+import * as schema from '../server/db/schema/index';
+import { createRehearsalDatabase } from '../server/db/rehearsal-db';
+import { createAuth, AuthConfigError, AUTH_POLICY } from '../server/auth/auth';
+import { bootstrapOwner, BootstrapRefusedError } from '../server/auth/bootstrap-owner';
+import { loadActor, assertPermission, AuthenticationRequiredError, AuthorizationError } from '../server/authz/authorize';
+import { PERMISSIONS, ROLES, ROLE_PERMISSIONS, permissionsFor, hasPermission, canAssignRole } from '../server/authz/permissions';
+import { recordAudit, AuditInputError } from '../server/audit/audit';
+import { redact } from '../server/audit/redact';
 
 const OS = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://localhost:3000';
@@ -212,8 +212,17 @@ group('8. Secrets never reach the browser');
   const instance = readFileSync(join(OS, 'server/auth/instance.ts'), 'utf-8');
   const current = readFileSync(join(OS, 'server/auth/current-actor.ts'), 'utf-8');
   assert(instance.startsWith("import 'server-only';") && current.startsWith("import 'server-only';"), 'the auth instance and request-actor modules are server-only (client import = build error)');
+  // A client component may import a 'use server' action module (only a server reference is shipped), but never the
+  // database, authorization, audit, the auth instance or the request-actor helper.
   const clientFiles = files.filter(f => /^['"]use client['"]/m.test(readFileSync(f, 'utf-8')));
-  assert(clientFiles.every(f => !/server\/(auth|db|authz|audit)/.test(readFileSync(f, 'utf-8'))), 'no client component imports server auth, database, authz or audit code');
+  const leaky = clientFiles.filter(f => /server\/(db|authz|audit)|server\/auth\/(instance|current-actor|auth|bootstrap-owner)/.test(readFileSync(f, 'utf-8')));
+  assert(leaky.length === 0, 'no client component imports the database, authz, audit or the auth instance', leaky);
+  const actionModules = clientFiles.flatMap(f => [...readFileSync(f, 'utf-8').matchAll(/from '@\/(server\/[^']+)'/g)].map(m => m[1]));
+  assert(
+    actionModules.length > 0 && actionModules.every(m => readFileSync(join(OS, `${m}.ts`), 'utf-8').startsWith("'use server'")),
+    'every server module a client component imports is a server-action module',
+    actionModules
+  );
   const bootstrap = readFileSync(join(OS, 'server/auth/bootstrap-owner.ts'), 'utf-8');
   assert(!/console\.(log|error)\([^)]*password/i.test(bootstrap) && !/KACHMO_BOOTSTRAP_OWNER_PASSWORD/.test(bootstrap), 'the bootstrap never logs the password and never reads it from the environment');
 }

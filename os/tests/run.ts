@@ -7,12 +7,12 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { count, eq } from 'drizzle-orm';
-import * as schema from '../server/db/schema/index.js';
-import { createRehearsalDatabase } from '../server/db/rehearsal-db.js';
-import { loadCanonicalSource, MigrationSourceError, SOURCE_FILES, type CanonicalSource } from '../server/db/migration/source.js';
-import { importCanonicalSource, MigrationRefusedError } from '../server/db/migration/import.js';
-import { reconcile } from '../server/db/migration/reconcile.js';
-import { rehearse, snapshotFromGit } from '../server/db/migration/rehearse.js';
+import * as schema from '../server/db/schema/index';
+import { createRehearsalDatabase } from '../server/db/rehearsal-db';
+import { loadCanonicalSource, MigrationSourceError, SOURCE_FILES, type CanonicalSource } from '../server/db/migration/source';
+import { importCanonicalSource, MigrationRefusedError } from '../server/db/migration/import';
+import { reconcile } from '../server/db/migration/reconcile';
+import { rehearse, snapshotFromGit } from '../server/db/migration/rehearse';
 import { PROVENANCE_VALUES, RESEARCH_STATE_VALUES } from '../../core/leads/validation.js';
 
 const OS = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -179,7 +179,8 @@ group('5. Source validation fails closed');
 group('6. Hosted migration safety');
 {
   const run = (env: Record<string, string>) =>
-    spawnSync(process.execPath, [join(OS, 'node_modules/tsx/dist/cli.mjs'), join(OS, 'server/db/migrate.ts')], { cwd: OS, encoding: 'utf-8', timeout: 60000, env: { PATH: process.env.PATH ?? '', ...env } });
+    // A deliberately minimal environment: the migration command must never inherit stray credentials.
+    spawnSync(process.execPath, [join(OS, 'node_modules/tsx/dist/cli.mjs'), join(OS, 'server/db/migrate.ts')], { cwd: OS, encoding: 'utf-8', timeout: 60000, env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test', ...env } });
   const none = run({});
   assert(none.status !== 0 && /DATABASE_URL is not set/.test(none.stderr), 'db:migrate refuses without DATABASE_URL');
   const unconfirmed = run({ DATABASE_URL: 'postgresql://user:pw@ep-test.example.invalid/db' });

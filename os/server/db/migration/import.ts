@@ -1,9 +1,9 @@
 import { count } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from '../schema/index.js';
-import type { CanonicalSource } from './source.js';
-import { leadRow, suppressionRow, analyticsEventRow } from './transform.js';
-import { METHODOLOGY_V1_0 } from '../../methodology/v1.js';
+import * as schema from '../schema/index';
+import type { CanonicalSource } from './source';
+import { leadRow, suppressionRow, analyticsEventRow } from './transform';
+import { METHODOLOGY_V1_0 } from '../../methodology/v1';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

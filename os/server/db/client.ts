@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import * as schema from './schema/index.js';
+import * as schema from './schema/index';
 
 /**
  * Production database connection: node-postgres pool against Neon's pooled endpoint.

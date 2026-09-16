@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from '../db/schema/index.js';
-import { redact, AUDIT_ACTION } from './redact.js';
+import * as schema from '../db/schema/index';
+import { redact, AUDIT_ACTION } from './redact';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

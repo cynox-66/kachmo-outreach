@@ -12,9 +12,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { count, eq } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from '../db/schema/index.js';
-import { recordAudit } from '../audit/audit.js';
-import { AUTH_POLICY, createAuth, type Auth } from './auth.js';
+import * as schema from '../db/schema/index';
+import { recordAudit } from '../audit/audit';
+import { AUTH_POLICY, createAuth, type Auth } from './auth';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

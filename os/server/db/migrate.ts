@@ -9,7 +9,7 @@
 import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import { migrate } from 'drizzle-orm/neon-http/migrator';
-import { MIGRATIONS_FOLDER } from './rehearsal-db.js';
+import { MIGRATIONS_FOLDER } from './rehearsal-db';
 
 async function main() {
   const url = process.env.DATABASE_URL;

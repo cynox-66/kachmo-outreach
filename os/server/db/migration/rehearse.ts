@@ -14,10 +14,10 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { loadCanonicalSource, SOURCE_FILES, type CanonicalSource } from './source.js';
-import { importCanonicalSource, MigrationRefusedError } from './import.js';
-import { reconcile, type ReconciliationReport } from './reconcile.js';
-import { createRehearsalDatabase } from '../rehearsal-db.js';
+import { loadCanonicalSource, SOURCE_FILES, type CanonicalSource } from './source';
+import { importCanonicalSource, MigrationRefusedError } from './import';
+import { reconcile, type ReconciliationReport } from './reconcile';
+import { createRehearsalDatabase } from '../rehearsal-db';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');

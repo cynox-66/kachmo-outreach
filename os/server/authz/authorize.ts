@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import * as schema from '../db/schema/index.js';
-import { isRole, permissionsFor, type Permission, type Role } from './permissions.js';
+import * as schema from '../db/schema/index';
+import { isRole, permissionsFor, type Permission, type Role } from './permissions';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 

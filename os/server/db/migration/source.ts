@@ -4,7 +4,7 @@ import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '../../../../c
 import { validateLeadDatabase } from '../../../../core/leads/validation.js';
 import { findInvariantViolations } from '../../../../core/leads/invariants.js';
 import { suppressionEntryProblems } from '../../../../core/suppression/match.js';
-import { canonicalSha256, sha256 } from './canonical.js';
+import { canonicalSha256, sha256 } from './canonical';
 
 /** The canonical JSON-store data a migration reads. Only ever read from a COPY, never the live working tree. */
 export interface CanonicalSource {

@@ -11,7 +11,7 @@
 | 1.1 Titan security hardening | ✅ complete (isolated commit, not pushed) |
 | 1.2 Hosted database foundation | ✅ complete — schema, migrations, rehearsal tooling; **no real migration performed** |
 | 1.3 Authentication + authorisation | ✅ complete |
-| 1.4 Application shell | not started |
+| 1.4 Application shell | ✅ complete (not deployed) |
 
 ---
 
@@ -340,3 +340,66 @@ bootstrap never logging the password nor reading it from the environment.
   one-time command; the second run is refused once a row exists).
 - Owner password resets are not implemented yet (no UI until 1.4); until then an owner without a password must be
   re-bootstrapped on a fresh deployment.
+
+---
+
+## Phase 1.4 — Application shell
+
+### Git state at start
+`main` at `42ae3ef` (auth foundation), 5 commits ahead of `origin/main`, not pushed.
+
+### What was built
+Next.js 16 App Router shell: root layout + global styles (private, `noindex`), `/login` (client form + server action),
+protected layout resolving the actor, and nine authenticated routes — Today, Leads, Research, Calls, WhatsApp, Email
+ledger, Pipeline, Analytics, Settings — plus the Better Auth route handler and `proxy.ts`.
+
+- **Every authenticated page and layout enforces access server-side** (`requireActor` / `requirePermission('…')`), and
+  is `force-dynamic` so nothing about a lead is pre-rendered. Navigation is filtered by permission for convenience
+  only.
+- **`proxy.ts` only does optimistic cookie-presence redirects** — no session validation, no authorization decision.
+- **Sign-in goes through Better Auth's HTTP handler** from the server action, preserving rate limiting, origin checks
+  and cookie attributes; the error message never reveals whether an account exists; failures are audited with a
+  hashed IP. Sign-out revokes the session server-side.
+- **Security headers** in `next.config.mjs`: CSP (`frame-ancestors 'none'`, `object-src 'none'`), HSTS, nosniff,
+  `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `X-Robots-Tag: noindex`, COOP; `poweredByHeader: false`.
+- **No invented data.** The dashboard reads counts from the database through one small service and, because no
+  migration has been approved, states plainly that the hosted database holds no leads and the JSON store is still
+  canonical. Other pages describe what will exist rather than showing fake tables.
+- **Email page is read-only**: no send, schedule or queue-edit control, and no force equivalent anywhere in the app.
+
+### Decisions
+- **Extensionless relative imports inside `os/`**: Turbopack does not map NodeNext `.js` specifiers onto `.ts`.
+  `core/` keeps its `.js` specifiers and is imported by the app as types only. **Follow-up before the app imports
+  `core/` at runtime (1.5+): give `core/` a package entry point** (package.json exports + `transpilePackages`).
+- `turbopack.root` pinned to `os/` (the repository root has its own lockfile for the CLI engine).
+- Next rewrote `os/tsconfig.json` during the first build (added `allowJs` and its generated types include) — kept.
+
+### Tests
+
+| Suite | Result |
+|---|---|
+| `os` shell (`npm run test:shell`) | **35 passed / 0 failed** (new) |
+| `os` auth (`npm run test:auth`) | **61 passed / 0 failed** (+1: server-action import boundary) |
+| `os` database (`npm run test:db`) | **61 passed / 0 failed** |
+| `os` `npm run build` | **succeeds** — 12 routes, every authenticated route server-rendered on demand |
+| `os` typecheck / lint | clean |
+| Root `npm test` (225 + 42 + 56) | **323 passed / 0 failed**, unchanged |
+| Root `npm run typecheck` | clean |
+
+Shell tests assert: every authenticated page/layout enforces permission server-side and names the exact permission;
+no static pre-rendering; no client component imports database/authz/audit/auth-instance (and any server module a
+client imports is a `'use server'` module); no client component reads environment variables; no `NEXT_PUBLIC_`
+anywhere; server-only modules marked; no page runs qualification/scoring/eligibility logic or compares engine scores
+against its own thresholds; the overview service does not recompute engine results; empty state stated rather than
+shown as zeros; no mail code, no force/bypass control; the email page has no forms; all seven security headers
+present; proxy exempts login/auth and makes no authorization decision; sign-in goes through the handler, does not
+reveal account existence, audits failures with a hashed IP; login form matches the password policy; no sign-up route.
+
+Production data hashed before/after: unchanged.
+
+### Risks
+- CSP still allows `'unsafe-inline'` for scripts (Next's inline bootstrap). Nonce-based CSP is a hardening follow-up.
+- The app is not deployed; deployment settings, the least-privilege database role and Vercel deployment protection are
+  documented in `os/README.md` but unverified.
+- With no migrated data, the read surfaces are honest placeholders; the real lead table, detail view and
+  "why this lead?" explanation come after the approved migration.
