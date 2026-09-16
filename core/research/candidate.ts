@@ -221,11 +221,13 @@ export function approvalRefusal(c: ResearchCandidate, assessment: CandidateAsses
   if (!r || r === 'SYSTEM' || r === 'LLM' || /^(bot|agent|auto)/i.test(r)) {
     return { code: 'NOT_A_HUMAN', message: 'a candidate becomes a lead only when a named human approves it; automated identities are never accepted' };
   }
-  if (TERMINAL_CANDIDATE_STATUSES.has(c.status)) {
-    return { code: 'ALREADY_RESOLVED', message: `this candidate is already ${c.status}` };
-  }
+  // Suppression is checked BEFORE terminal status: "this company opted out" is a more useful thing to tell a
+  // reviewer than "this candidate is already SUPPRESSED", and it is the reason that can never be worked around.
   if (assessment.suppressionMatches.length) {
     return { code: 'SUPPRESSED', message: 'the candidate matches a suppression entry and can never be accepted, by anyone' };
+  }
+  if (TERMINAL_CANDIDATE_STATUSES.has(c.status)) {
+    return { code: 'ALREADY_RESOLVED', message: `this candidate is already ${c.status}` };
   }
   if (assessment.contradictedFields.length) {
     return { code: 'CONTRADICTED', message: `the source contradicts ${assessment.contradictedFields.join(', ')}; resolve the contradiction before accepting` };

@@ -237,10 +237,17 @@ function parseMarkdownReport(text: string): ParseResult {
           continue;
         }
         let value = kv[2].trim();
-        // An inline "(source: https://…)" is evidence for this field, not part of the value.
-        const inline = /\(\s*(?:source|evidence)\s*[:：]?\s*(https?:\/\/[^\s)]+)\s*\)/i.exec(value);
-        let source: string | null = inline ? inline[1] : null;
-        if (inline) value = value.replace(inline[0], '').trim();
+        // An inline "(source: …)" is evidence for this field, not part of the value — whether or not it is usable.
+        const inline = /\(\s*(?:source|evidence)\s*[:：]?\s*([^)]+?)\s*\)/i.exec(value);
+        let source: string | null = null;
+        if (inline) {
+          value = value.replace(inline[0], '').trim();
+          if (/^https?:\/\//i.test(inline[1])) source = inline[1];
+          else {
+            // Reported rather than silently dropped: "they gave a source" and "the source is usable" differ.
+            problems.push(problem('SOURCE_NOT_A_URL', `${field}: "${inline[1].slice(0, 60)}" was offered as a source but is not a URL, so it is not recorded as evidence.`, at, 'WARNING'));
+          }
+        }
         if (!source && field !== 'website_url' && field !== 'decision_maker_linkedin') {
           const bare = URL_RE.exec(value);
           // A value that is ONLY a URL is the value; a URL trailing prose is its source.

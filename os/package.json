@@ -5,12 +5,12 @@
   "type": "module",
   "description": "Kachmo Outbound OS — private internal application around the Kachmo core engine (../core).",
   "scripts": {
-    "dev": "next dev",
+    "dev": "npm run build:core && next dev",
     "build": "npm run --prefix ../core build && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx tests/run.ts && tsx tests/migration.ts && tsx tests/auth.ts && tsx tests/shell.ts && tsx tests/sync.ts",
+    "test": "npm run build:core && tsx tests/run.ts && tsx tests/migration.ts && tsx tests/auth.ts && tsx tests/shell.ts && tsx tests/sync.ts && tsx --conditions=react-server tests/research.ts && tsx --conditions=react-server tests/app.ts",
     "test:db": "tsx tests/run.ts",
     "test:auth": "tsx tests/auth.ts",
     "test:shell": "tsx tests/shell.ts",
@@ -22,7 +22,9 @@
     "test:sync": "tsx tests/sync.ts",
     "db:rehearse:hosted": "tsx server/db/migration/rehearse-hosted.ts",
     "db:migrate:data": "tsx server/db/migration/migrate-data.ts",
-    "build:core": "npm run --prefix ../core build"
+    "build:core": "npm run --prefix ../core build",
+    "test:research": "npm run build:core && tsx --conditions=react-server tests/research.ts",
+    "test:app": "npm run build:core && tsx --conditions=react-server tests/app.ts"
   },
   "engines": {
     "node": ">=20.9"

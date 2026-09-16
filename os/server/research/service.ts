@@ -8,6 +8,7 @@ import type { Actor } from '../authz/authorize';
 import { reportMetadataProblems, type ReportFormat, type ReportProblem, RESEARCH_REPORT_CONTRACT_VERSION } from '@kachmo/core/research/report.js';
 import { validateExtraction } from '@kachmo/core/research/extraction.js';
 import {
+  TERMINAL_CANDIDATE_STATUSES,
   assessCandidate,
   approvalRefusal,
   withDerivedEvidence,
@@ -363,6 +364,11 @@ export async function reviewCandidate(actor: Actor, input: ReviewInput, snapshot
   const { row, candidate, assessment } = detail;
 
   if (row.resolvedLeadId) throw new ResearchError('That candidate has already become a canonical lead.');
+  // A decision a HUMAN already took is not re-taken; reversing one is a new, separately audited act. Keyed on the
+  // reviewer rather than on status, because SUPPRESSED is assigned by the system and deserves its own refusal.
+  if (row.reviewedByLabel && TERMINAL_CANDIDATE_STATUSES.has(row.status as CandidateStatus)) {
+    throw new ResearchError(`That candidate is already ${row.status} — reviewed by ${row.reviewedByLabel}.`);
+  }
 
   if (input.decision === 'ACCEPT') {
     const refusal = approvalRefusal(candidate, assessment, actor.name);
