@@ -60,7 +60,16 @@ group('2. Client/server boundary and secrets');
   const envInClient = clientFiles.filter(f => /process\.env\./.test(read(f)));
   assert(envInClient.length === 0, 'no client component reads environment variables', envInClient.map(rel));
   assert(files.every(f => !/NEXT_PUBLIC_/.test(read(f))), 'no NEXT_PUBLIC_ variable anywhere in the app');
-  const serverOnly = ['server/auth/instance.ts', 'server/auth/current-actor.ts', 'server/services/overview.ts'];
+  const serverOnly = [
+    'server/auth/instance.ts',
+    'server/auth/current-actor.ts',
+    'server/repo/canonical.ts',
+    'server/services/dashboard.ts',
+    'server/services/leads.ts',
+    'server/services/operations.ts',
+    'server/services/admin.ts',
+    'server/research/service.ts',
+  ];
   assert(serverOnly.every(f => read(join(OS, f)).startsWith("import 'server-only';")), 'server-only modules are marked server-only');
 }
 
@@ -72,9 +81,15 @@ group('3. No engine logic in the interface');
   assert(computing.length === 0, 'no page or component runs qualification, scoring or eligibility logic', computing.map(rel));
   const thresholds = appFiles.filter(f => /(kachmo_score|research_completeness_score|completeness)\s*[<>=]/.test(read(f)));
   assert(thresholds.length === 0, 'no page compares engine scores against its own thresholds', thresholds.map(rel));
-  const overview = read(join(OS, 'server/services/overview.ts'));
-  assert(/count\(\)/.test(overview) && !/evaluateLeadGates|calculateLeadScores/.test(overview), 'the overview service reads stored counts; it does not recompute engine results');
-  assert(/migrated: leads > 0/.test(overview) && /The hosted database holds no leads yet/.test(read(join(APP, '(app)/page.tsx'))), 'an empty database is stated plainly instead of being shown as zeroed metrics');
+  // The services DO call core/ — that is the point: one engine, used by both the CLI and the app. What must never
+  // happen is a PAGE computing an engine result, which the two assertions above already forbid.
+  const canonical = read(join(OS, 'server/repo/canonical.ts'));
+  assert(/source: usePostgres \? 'POSTGRES' : 'GIT_JSON'/.test(canonical), 'the read layer records which store the data actually came from');
+  assert(/refusing to display a partial database/.test(canonical), 'a malformed lead store fails closed rather than rendering a partial list');
+  const layout = read(join(APP, '(app)/layout.tsx'));
+  assert(/phaseBanner/.test(layout), 'every page states which store is canonical rather than implying it');
+  const phase = read(join(OS, 'server/repo/phase.ts'));
+  assert(/DEFAULT_PHASE: CutoverPhase = 'PRE_CUTOVER'/.test(phase), 'an undeclared cutover phase defaults to PRE_CUTOVER — the read-only, safe direction');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

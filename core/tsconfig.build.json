@@ -1,0 +1,14 @@
+{
+  "//": "Emits the ESM JavaScript the Next app consumes. Type-checking rules live in ./tsconfig.json; this file only builds. The CLI and tests keep running the TypeScript sources directly through tsx, so dist/ is for the bundler alone.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["dist"]
+}

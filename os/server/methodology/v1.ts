@@ -1,7 +1,7 @@
-import { CALL_OUTCOMES, LOST_REASONS } from '../../../core/leads/schema.js';
-import { PRIORITY_THRESHOLDS, CONFIRMED_COMPLETENESS, SCORE_BASIS } from '../../../core/scoring/score.js';
-import { SCOPE_BY_ARCHETYPE } from '../../../core/leads/opportunity.js';
-import { MAX_UNANSWERED_ATTEMPTS, MIN_HOURS_BETWEEN_ATTEMPTS } from '../../../core/queues/calls.js';
+import { CALL_OUTCOMES, LOST_REASONS } from '@kachmo/core/leads/schema.js';
+import { PRIORITY_THRESHOLDS, CONFIRMED_COMPLETENESS, SCORE_BASIS } from '@kachmo/core/scoring/score.js';
+import { SCOPE_BY_ARCHETYPE } from '@kachmo/core/leads/opportunity.js';
+import { MAX_UNANSWERED_ATTEMPTS, MIN_HOURS_BETWEEN_ATTEMPTS } from '@kachmo/core/queues/calls.js';
 
 /**
  * Methodology v1.0 = the tested core/ engine. This record DESCRIBES it for attribution; it does not configure it.

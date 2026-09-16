@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { pgTable, text, uuid, integer, boolean, jsonb, timestamp, index, check } from 'drizzle-orm/pg-core';
-import type { KachmoLead } from '../../../../core/leads/schema.js';
+import type { KachmoLead } from '@kachmo/core/leads/schema.js';
 import { methodologyVersion } from './methodology';
 
 /**

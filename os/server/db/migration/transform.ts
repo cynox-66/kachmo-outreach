@@ -1,4 +1,4 @@
-import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '../../../../core/leads/schema.js';
+import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '@kachmo/core/leads/schema.js';
 import { canonicalSha256 } from './canonical';
 
 /**

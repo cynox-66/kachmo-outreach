@@ -1,0 +1,25 @@
+{
+  "name": "@kachmo/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kachmo Methodology v1.0 domain engine. Pure TypeScript: no filesystem, network, environment or process access.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*.js": {
+      "types": "./*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*": {
+      "types": "./*.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

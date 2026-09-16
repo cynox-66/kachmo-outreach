@@ -1,5 +1,5 @@
-import type { SuppressionEntry } from '../../../core/leads/schema.js';
-import { planSuppressionPublish, suppressionFreshness, type PublishPlan, type PublishState } from '../../../core/reconciliation/publish.js';
+import type { SuppressionEntry } from '@kachmo/core/leads/schema.js';
+import { planSuppressionPublish, suppressionFreshness, type PublishPlan, type PublishState } from '@kachmo/core/reconciliation/publish.js';
 
 /**
  * THE TITAN BOUNDARY — contract only. NOTHING HERE TALKS TO THE NETWORK.

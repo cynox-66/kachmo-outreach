@@ -13,7 +13,7 @@ import { loadCanonicalSource, MigrationSourceError, SOURCE_FILES, type Canonical
 import { importCanonicalSource, MigrationRefusedError } from '../server/db/migration/import';
 import { reconcile } from '../server/db/migration/reconcile';
 import { rehearse, snapshotFromGit } from '../server/db/migration/rehearse';
-import { PROVENANCE_VALUES, RESEARCH_STATE_VALUES } from '../../core/leads/validation.js';
+import { PROVENANCE_VALUES, RESEARCH_STATE_VALUES } from '@kachmo/core/leads/validation.js';
 
 const OS = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -54,7 +54,15 @@ group('1. Schema mirrors core/ (no second definition of allowed values)');
   const tables = [...sql.matchAll(/CREATE TABLE "([a-z_]+)"/g)].map(m => m[1]).sort();
   const allSql = readdirSync(join(OS, 'server/db/migrations')).filter(f => f.endsWith('.sql')).map(f => readFileSync(join(OS, 'server/db/migrations', f), 'utf-8')).join('\n');
   const allTables = [...allSql.matchAll(/CREATE TABLE "([a-z_]+)"/g)].map(m => m[1]).sort();
-  assert(JSON.stringify(allTables) === JSON.stringify(['account', 'analytics_event', 'audit_event', 'lead', 'lead_evaluation', 'lead_evidence', 'methodology_version', 'rate_limit', 'session', 'suppression_entry', 'user', 'user_role', 'verification']), 'exactly the 13 justified tables exist across all migrations', allTables);
+  // Every table is here because something needs it; an unjustified table is a place for state to hide.
+  // The three research_* tables are Phase 2: a report and its candidates live BESIDE the lead table, never inside
+  // it, so an uploaded report can never mutate a canonical lead.
+  const JUSTIFIED_TABLES = [
+    'account', 'analytics_event', 'audit_event', 'lead', 'lead_evaluation', 'lead_evidence', 'methodology_version',
+    'rate_limit', 'research_brief', 'research_candidate', 'research_report', 'session', 'suppression_entry', 'user',
+    'user_role', 'verification',
+  ];
+  assert(JSON.stringify(allTables) === JSON.stringify(JUSTIFIED_TABLES), `exactly the ${JUSTIFIED_TABLES.length} justified tables exist across all migrations`, allTables);
   assert(tables.length === 12, 'the initial migration created the 12 Phase 1.2 tables', tables);
   const statements = [sql, readFileSync(join(OS, 'server/db/migrations/0001_append_only_guards.sql'), 'utf-8')]
     .flatMap(f => f.split('--> statement-breakpoint'))

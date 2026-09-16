@@ -27,9 +27,6 @@
     "paths": {
       "@/*": [
         "./*"
-      ],
-      "@core/*": [
-        "../core/*"
       ]
     },
     "allowJs": true
@@ -39,11 +36,9 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "../core/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    "../core/platform.d.ts"
+    "node_modules"
   ]
 }

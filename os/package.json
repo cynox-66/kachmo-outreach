@@ -6,7 +6,7 @@
   "description": "Kachmo Outbound OS — private internal application around the Kachmo core engine (../core).",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run --prefix ../core build && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -19,12 +19,16 @@
     "db:migrate": "tsx server/db/migrate.ts",
     "owner:bootstrap": "tsx server/auth/bootstrap-owner.ts",
     "test:migration": "tsx tests/migration.ts",
-    "test:sync": "tsx tests/sync.ts"
+    "test:sync": "tsx tests/sync.ts",
+    "db:rehearse:hosted": "tsx server/db/migration/rehearse-hosted.ts",
+    "db:migrate:data": "tsx server/db/migration/migrate-data.ts",
+    "build:core": "npm run --prefix ../core build"
   },
   "engines": {
     "node": ">=20.9"
   },
   "dependencies": {
+    "@kachmo/core": "file:../core",
     "@neondatabase/serverless": "1.1.0",
     "better-auth": "1.7.5",
     "drizzle-orm": "0.45.2",

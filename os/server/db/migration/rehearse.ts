@@ -74,9 +74,19 @@ export interface RehearsalResult {
   losslessByHash: boolean;
 }
 
-export async function rehearse(ref = 'HEAD'): Promise<RehearsalResult> {
+/**
+ * A rehearsal target: an already-migrated database plus how to close it. The default is in-memory PGlite.
+ * A hosted target is supplied ONLY by the separately gated entry point (rehearse-hosted.ts), so this module
+ * never learns how to reach a hosted database.
+ */
+export interface RehearsalTarget {
+  db: Parameters<typeof reconcile>[0];
+  close: () => Promise<void> | void;
+}
+
+export async function rehearse(ref = 'HEAD', createTarget: () => Promise<RehearsalTarget> = createRehearsalDatabase): Promise<RehearsalResult> {
   const { dir, commit } = snapshotFromGit(ref);
-  const database = await createRehearsalDatabase();
+  const database = await createTarget();
   try {
     const source = loadCanonicalSource(dir);
     await importCanonicalSource(database.db, source, `REHEARSAL ${commit.slice(0, 12)}`);

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '../../../../core/leads/schema.js';
-import { validateLeadDatabase } from '../../../../core/leads/validation.js';
-import { findInvariantViolations } from '../../../../core/leads/invariants.js';
-import { suppressionEntryProblems } from '../../../../core/suppression/match.js';
+import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '@kachmo/core/leads/schema.js';
+import { validateLeadDatabase } from '@kachmo/core/leads/validation.js';
+import { findInvariantViolations } from '@kachmo/core/leads/invariants.js';
+import { suppressionEntryProblems } from '@kachmo/core/suppression/match.js';
 import { canonicalSha256, sha256 } from './canonical';
 
 /** The canonical JSON-store data a migration reads. Only ever read from a COPY, never the live working tree. */

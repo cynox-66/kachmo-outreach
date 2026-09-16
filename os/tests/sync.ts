@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SuppressionEntry } from '../../core/leads/schema.js';
+import type { SuppressionEntry } from '@kachmo/core/leads/schema.js';
 import { planPublish, titanOutreachGate, unconfiguredTransport, TitanBridgeNotConfiguredError, type SuppressionTransport } from '../server/sync/titan-bridge';
 
 const OS = resolve(dirname(fileURLToPath(import.meta.url)), '..');

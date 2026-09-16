@@ -3,18 +3,19 @@
  * Private internal application: no indexing, strict security headers, no framework fingerprint.
  */
 
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  // This package is the build root (the repository root has its own lockfile for the CLI engine).
-  turbopack: { root: dirname(fileURLToPath(import.meta.url)) },
-  // The domain engine lives outside this package (../core), imported directly rather than duplicated.
-  // Note: os/ code uses extensionless relative imports, because Turbopack does not map NodeNext ".js" specifiers to
-  // ".ts". When the app starts importing core/ at runtime, core/ needs a package entry point for the same reason.
+  // The turbopack root encloses ../core, because server components import the domain engine at runtime.
+  turbopack: { root: resolve(dirname(fileURLToPath(import.meta.url)), '..') },
+  // The domain engine is a real package (@kachmo/core -> ../core) rather than a pile of "../../../core" hops.
+  // It resolves to core/dist (emitted ESM) at runtime and to the TypeScript sources for types: Turbopack will not
+  // map core's NodeNext ".js" specifiers onto ".ts" files, so the app consumes compiled output. `npm run build`
+  // rebuilds core first, so a stale dist can never reach a build.
   experimental: { externalDir: true },
   // node-postgres must stay a real Node dependency, not be bundled.
   serverExternalPackages: ['pg'],
