@@ -18,9 +18,24 @@ import { loadCanonicalSource, SOURCE_FILES, type CanonicalSource } from './sourc
 import { importCanonicalSource, MigrationRefusedError } from './import';
 import { reconcile, type ReconciliationReport } from './reconcile';
 import { createRehearsalDatabase } from '../rehearsal-db';
+import { buildManifest, type MigrationManifest } from './manifest';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
+
+/** HEAD of the working tree and whether it is dirty — a rehearsal from a dirty tree is not reproducible. */
+export function codeRevision(repo = REPO): { commit: string; dirty: boolean } {
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8' }).trim();
+  const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf-8' }).trim();
+  // Generated operator artifacts are regenerated on every run and are not migration inputs.
+  const GENERATED = /(DAILY_WAR_ROOM|AADI_DAILY_CALLS|WHATSAPP_QUEUE|RESEARCH_QUEUE|WEEKLY_OUTBOUND_REPORT)\.md$|^queues\/|^database\/research-queue\.json$/;
+  const dirty = status
+    .split('\n')
+    .filter(Boolean)
+    .map(l => l.slice(3))
+    .some(f => !GENERATED.test(f));
+  return { commit, dirty };
+}
 
 export function snapshotFromGit(ref: string, repo = REPO): { dir: string; commit: string } {
   const commit = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: repo, encoding: 'utf-8' }).trim();
@@ -38,6 +53,10 @@ export interface RehearsalResult {
   source: Pick<CanonicalSource, 'fileSha256'> & { leads: number; suppression: number; events: number };
   report: ReconciliationReport;
   secondImportRefused: boolean;
+  /** The exact-commit evidence record: what came from where, into which schema shape. */
+  manifest: MigrationManifest;
+  /** True when the manifest proves the stored records hash identically to the source records. */
+  losslessByHash: boolean;
 }
 
 export async function rehearse(ref = 'HEAD'): Promise<RehearsalResult> {
@@ -47,6 +66,13 @@ export async function rehearse(ref = 'HEAD'): Promise<RehearsalResult> {
     const source = loadCanonicalSource(dir);
     await importCanonicalSource(database.db, source, `REHEARSAL ${commit.slice(0, 12)}`);
     const report = await reconcile(database.db, source);
+    const code = codeRevision();
+    const manifest = await buildManifest(database.db, source, {
+      sourceCommit: commit,
+      codeCommit: code.commit,
+      codeTreeDirty: code.dirty,
+      generatedAt: new Date().toISOString(),
+    });
     let secondImportRefused = false;
     try {
       await importCanonicalSource(database.db, source, 'REHEARSAL second import');
@@ -58,6 +84,8 @@ export async function rehearse(ref = 'HEAD'): Promise<RehearsalResult> {
       source: { fileSha256: source.fileSha256, leads: source.leads.length, suppression: source.suppression.length, events: source.events.length },
       report,
       secondImportRefused,
+      manifest,
+      losslessByHash: manifest.source.leadRecordsSha256 === manifest.target.leadRecordsSha256,
     };
   } finally {
     await database.close();
@@ -77,8 +105,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.log(`   source: ${result.source.leads} leads · ${result.source.suppression} suppression entries · ${result.source.events} events`);
       for (const c of result.report.checks) console.log(`   ${c.ok ? '✅' : '❌'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
       console.log(`   ${result.secondImportRefused ? '✅' : '❌'} a second import into a populated database is refused`);
+      console.log(`   ${result.losslessByHash ? '✅' : '❌'} stored lead records hash identically to the source records`);
+      const m = result.manifest;
+      console.log(`\n   manifest: source ${m.sourceCommit.slice(0, 12)} · code ${m.codeCommit.slice(0, 12)}${m.codeTreeDirty ? ' (DIRTY TREE — not reproducible)' : ''}`);
+      console.log(`             schema ${m.schema.migrations.map(x => x.tag).join(', ')} · ${m.schema.tables.length} tables · ${m.schema.constraints.length} constraints · ${m.schema.indexes.length} indexes · ${m.schema.triggers.length} triggers`);
+      console.log(`             rows ${Object.entries(m.target.rowCounts).map(([k, v]) => `${k}=${v}`).join(' ')}`);
       console.log(`   report: ${file}`);
-      const ok = result.report.ok && result.secondImportRefused;
+      const ok = result.report.ok && result.secondImportRefused && result.losslessByHash;
       console.log(ok ? '\n✅ Rehearsal passed. No hosted database was touched.' : '\n❌ Rehearsal FAILED. Do not migrate.');
       process.exit(ok ? 0 : 1);
     })
