@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx tests/run.ts && tsx tests/migration.ts && tsx tests/auth.ts && tsx tests/shell.ts",
+    "test": "tsx tests/run.ts && tsx tests/migration.ts && tsx tests/auth.ts && tsx tests/shell.ts && tsx tests/sync.ts",
     "test:db": "tsx tests/run.ts",
     "test:auth": "tsx tests/auth.ts",
     "test:shell": "tsx tests/shell.ts",
@@ -18,7 +18,8 @@
     "db:rehearse": "tsx server/db/migration/rehearse.ts",
     "db:migrate": "tsx server/db/migrate.ts",
     "owner:bootstrap": "tsx server/auth/bootstrap-owner.ts",
-    "test:migration": "tsx tests/migration.ts"
+    "test:migration": "tsx tests/migration.ts",
+    "test:sync": "tsx tests/sync.ts"
   },
   "engines": {
     "node": ">=20.9"
