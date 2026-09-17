@@ -1,8 +1,11 @@
 {
   "paused": true,
   "pausedAt": "2026-09-17T11:00:00.000Z",
-  "reason": "POST_CUTOVER_SUPPRESSION_HAS_NO_PUBLISHER",
-  "note": "INTENTIONAL SAFETY PAUSE — NOT AN OPERATIONAL FAILURE. Postgres became canonical at cutover (database/CUTOVER_STATE.json). The hosted application records suppression in Postgres, but scripts/cron-dispatch.ts reads the committed database/suppression.json, and the ADR-010 publisher that would copy the former into the latter has no executor yet. An opt-out can therefore exist in Postgres without ever reaching the artifact this dispatcher checks, so automated dispatch could email someone who has asked not to be contacted. Automated dispatch stays paused until that publisher exists and has run. Suppression synchronisation DOES NOT exist today. To resume: set paused=false here AND restore the schedule block in .github/workflows/outreach-dispatch.yml. Do neither until suppression actually publishes. See docs/adr/ADR-018-legacy-json-writes-frozen-after-cutover.md and docs/adr/ADR-010-one-way-suppression-publish.md.",
-  "unblockedBy": "an active, verified Postgres -> database/suppression.json publisher (ADR-010)",
-  "scheduledQueueEntriesHeld": 5
+  "updatedAt": "2026-09-17T12:30:00.000Z",
+  "reason": "AWAITING_HUMAN_AUTHORIZATION_TO_RESUME",
+  "note": "INTENTIONAL SAFETY PAUSE — NOT AN OPERATIONAL FAILURE. The original cause is now fixed: the ADR-010 publisher exists (os/server/sync/publish-suppression.ts), is audited and idempotent, and the workflow runs publish-then-verify before the dispatcher, so a stale, malformed or unexplained suppression artifact fails the job and nothing is sent. What remains is not an engineering gap but a decision: automated production outreach has not been resumed, and resuming it is a human act. The publisher has never run against production Postgres and the production artifact has never been published or committed. Until a human verifies a real production publish and commits the resulting database/suppression.json, the schedule stays disabled.",
+  "unblockedBy": "a human-reviewed production run of `npm --prefix os run suppression:publish -- --apply`, the resulting database/suppression.json committed and pushed, then paused=false here and the schedule block uncommented",
+  "scheduledQueueEntriesHeld": 5,
+  "mechanismReady": true,
+  "productionArtifactPublished": false
 }

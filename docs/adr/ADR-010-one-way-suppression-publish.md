@@ -51,8 +51,48 @@ The default transport **refuses**. An unconfigured deployment fails closed rathe
 ## Implementation
 
 - `core/reconciliation/publish.ts` — `planSuppressionPublish()`, `suppressionFreshness()`, publish states
-- `os/server/sync/titan-bridge.ts` — contract, refusing default transport, outreach gate. **No network call exists.**
-- `os/tests/sync.ts` — 29 checks
+- `core/reconciliation/suppression-artifact.ts` — `verifySuppressionArtifact()`, the deterministic classifier
+- `os/server/sync/titan-bridge.ts` — contract, refusing default transport, outreach gate
+- `os/server/sync/suppression-artifact-store.ts` — **the only writer of `database/suppression.json`**
+- `os/server/sync/publish-suppression.ts` — the executor (`suppression:publish`, `suppression:verify`)
+- `os/tests/sync.ts` — 29 checks · `os/tests/suppression-publish.ts` — 103 checks
+
+---
+
+## The executor (2026-09-17)
+
+The publisher was a contract with no implementation until cutover made the gap live: the app recorded suppression
+in Postgres, the dispatcher read the committed file, and nothing carried one to the other. The executor closes it.
+
+**Source** is the *active* suppression in Postgres — rows with `revoked_at IS NULL`. A revoked entry is never
+published, because revocation means the person is no longer suppressed. An entry revoked *after* publication stays
+in the artifact: a publish never removes, so lifting it there is a separate, attributed act. Verification reports
+such an entry as explained-by-revocation rather than as an anomaly.
+
+**Target** is `database/suppression.json`, which remains a DERIVED artifact. It is never canonical again.
+
+**What protects against what**, stated concretely rather than as "optimistic concurrency":
+
+| Risk | Mechanism |
+|---|---|
+| two publishers in one workspace | `O_EXCL` lock file; the second refuses |
+| the artifact moving between read and write | compare-and-swap on the SHA-256 of the exact bytes read — this is what protects publishers on *different* machines |
+| a partial write | write-to-temp then `rename`, so the dispatcher sees the whole old file or the whole new one |
+| a stale Postgres read | one snapshot per run, re-verified against the written bytes afterwards |
+| losing a suppression | additive-only plan; `WOULD_REMOVE` is a refusal |
+| an artifact entry nobody can account for | verification refuses; the publisher will not overwrite it |
+| a publish that did not land | the run re-reads from disk and re-verifies; a publish that cannot verify itself reports failure and blocks outreach |
+
+**Idempotent.** The serialization is deterministic, so the same canonical state always produces the same bytes. A
+re-run writes nothing, produces no diff, and records a verification rather than a second publish.
+
+**Audited.** Every exit records one event — including refusals, because an unaudited refusal is indistinguishable
+from the command never having run. Metadata carries the canonical state hash, the artifact hash before and after,
+counts, and the outcome. It never carries a contact value or a credential; a test asserts this against the real
+audit rows.
+
+**Fail closed throughout.** Postgres unreachable, artifact stale, malformed, absent, or holding an unexplained
+entry — every one of these blocks outreach rather than degrading to a best guess.
 
 ---
 

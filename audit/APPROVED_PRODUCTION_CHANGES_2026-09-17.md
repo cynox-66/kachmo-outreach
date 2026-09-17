@@ -41,3 +41,41 @@ The cron runs the **committed** workflow from GitHub. `origin/main` currently ho
 ## 5. Verification
 
 `npm run test:titan` — 80 assertions, including: the marker records the pause; no active cron line while paused; the gate precedes the dispatcher and fails fast; the gate refuses a no-input run and permits dry-run and acknowledged runs; the queue still holds its 5 entries; the ledger is present; neither `cron-dispatch.ts` nor `send-titan-smtp.ts` was modified. A vacuity check confirmed that re-enabling one cron line fails the suite.
+
+---
+
+# Second change (same day): ADR-010 publisher implemented
+
+## 6. What changed
+
+The suppression publisher now exists, so the workflow performs the full safety sequence before dispatch:
+
+```
+checkout → pause gate → install → publish suppression → verify artifact → dispatch → commit
+```
+
+Every step before dispatch fails the job rather than continuing. The dispatcher itself is unchanged.
+
+## 7. Second protected hash change
+
+| File | Baseline 09-17T1103 | Baseline 09-17T1118 | Why |
+|---|---|---|---|
+| `.github/workflows/outreach-dispatch.yml` | `9b0e3440…` | `9aabced6…` | publish + verify steps added before dispatch; the artifact is now committed alongside the queue and tracker |
+| the other 10 | unchanged | unchanged | — |
+
+`scripts/cron-dispatch.ts`, `scripts/send-titan-smtp.ts`, `OUTREACH_TRACKER.md`, `scheduled-queue.json` and `.last-send-results.json` remain byte-identical across both changes. Titan's send logic and send state have not been touched at any point.
+
+Pre-change copy of the intermediate workflow: `audit/pre-pause-backup-20260917T1100/outreach-dispatch-after-publisher.yml`.
+
+## 8. Still paused, for a different reason
+
+The original cause (no publisher) is fixed. Dispatch stays paused because the publisher **has never run against production Postgres** and the production artifact has never been published or committed. `OUTREACH_PAUSE.json` now records `mechanismReady: true` and `productionArtifactPublished: false`.
+
+Resuming is a human act, listed in that file's `unblockedBy`.
+
+## 9. Two concrete defects fixed
+
+- **The dashboard's suppression-freshness indicator was vacuous.** `os/server/services/operations.ts` compared the canonical list against itself, so it reported "outreach allowed" regardless of what the artifact contained. Post-cutover this was actively misleading. It now reads the artifact and classifies it with the real verifier.
+- **Approving a research candidate threw.** `importApprovedCandidate` ended in an unconditional `throw` written for PRE_CUTOVER, but post-cutover `reviewCandidate` calls it — after already marking the candidate ACCEPTED and writing an audit event. The approval path was broken and left inconsistent state. It now builds the lead through the same factory the CSV migration uses and inserts it with the candidate resolution in one transaction.
+
+Both have regression tests.

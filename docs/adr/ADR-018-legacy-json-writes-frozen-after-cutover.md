@@ -80,7 +80,19 @@ Unfreezing `suppress:add` is *not* the fix — it would write the suppression in
 
 **Resolution (2026-09-17): automated dispatch is paused.** The three `schedule:` triggers in `.github/workflows/outreach-dispatch.yml` are commented out and a fail-closed gate step, reading `OUTREACH_PAUSE.json`, runs before the dispatcher. `workflow_dispatch` still allows a dry run; a real send requires an explicit `acknowledge_stale_suppression` input. Titan's send logic, ledger, queue and send state are untouched — the pause is entirely at the workflow level. See `audit/APPROVED_PRODUCTION_CHANGES_2026-09-17.md`.
 
-This closes the exposure but does **not** close the gap. Suppression synchronisation still does not exist, [ADR-010](ADR-010-one-way-suppression-publish.md) is **not** complete, and automated outreach stays paused until a publisher exists and has been verified to run. No completion date is implied. Note also that the cron executes the *committed* workflow: the pause takes effect only once pushed.
+**Resolved (2026-09-17): the publisher exists.** [ADR-010](ADR-010-one-way-suppression-publish.md)'s executor is implemented, audited and idempotent, and the workflow now runs publish-then-verify before the dispatcher. A stale, malformed, absent or unexplained artifact — or an unreachable Postgres — fails the job, so nothing is sent.
+
+That changes what "frozen" means for this one file, and the exception is stated precisely:
+
+| File | After cutover |
+|---|---|
+| `database/kachmo_leads.json` | frozen; no writer |
+| `analytics/events.jsonl` | frozen; no writer |
+| `database/suppression.json` | frozen to operators; **derived state maintained solely by the ADR-010 publisher** |
+
+`scripts/lib/store.ts`'s `addSuppression()` stays refused: the publisher is an addition, not a loophole. A test asserts exactly one module in `os/server` writes the artifact, and that it is the dedicated store.
+
+Automated production dispatch remains **paused**, now for a different reason: the mechanism is ready but has never run against production Postgres, and resuming outreach is a human decision, not an engineering one. The cron also executes the *committed* workflow, so none of this takes effect until pushed.
 
 ---
 

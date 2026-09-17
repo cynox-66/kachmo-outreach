@@ -19,6 +19,8 @@ import {
   type ReviewDecision,
 } from '@kachmo/core/research/candidate.js';
 import { buildBriefSpec, renderBrief, type ResearchDepth } from '@kachmo/core/research/prompt.js';
+import { leadFromCandidate, nextTargetNumber } from '@kachmo/core/research/promotion.js';
+import { leadRow } from '../db/migration/transform';
 import { normalizeDomain } from '@kachmo/core/contact/provenance.js';
 import { loadCanonical, type CanonicalSnapshot } from '../repo/canonical';
 import { parseReport } from './parse';
@@ -427,6 +429,7 @@ export async function reviewCandidate(actor: Actor, input: ReviewInput, snapshot
  * it is not zero, and contacting someone who opted out during it would be indefensible.
  */
 export async function importApprovedCandidate(actor: Actor, candidateId: string, snapshot: CanonicalSnapshot): Promise<string> {
+  const { db } = getServer();
   const detail = await getCandidateDetail(candidateId, snapshot);
   if (!detail) throw new ResearchError('That candidate does not exist.');
   const { row, candidate, assessment } = detail;
@@ -436,10 +439,43 @@ export async function importApprovedCandidate(actor: Actor, candidateId: string,
   const refusal = approvalRefusal({ ...candidate, status: 'AWAITING_REVIEW' }, assessment, row.reviewedByLabel ?? actor.name);
   if (refusal) throw new ResearchError(`Import refused: ${refusal.message}`);
 
-  throw new ResearchError(
-    'Canonical import runs only after cutover, when Postgres owns the lead table. The approval is recorded and the ' +
-      'candidate is queued for export.'
-  );
+  if (snapshot.source !== 'POSTGRES') {
+    throw new ResearchError('Canonical import runs only after cutover, when Postgres owns the lead table.');
+  }
+
+  const lead = leadFromCandidate({
+    candidate,
+    targetNumber: nextTargetNumber(snapshot.leads.map(l => l.target_number)),
+    leadId: randomUUID(),
+    approvedBy: row.reviewedByLabel ?? actor.name,
+    now: new Date().toISOString(),
+  });
+
+  // One transaction: the lead and the candidate's resolution land together or not at all. A lead without its
+  // candidate marked resolved would be re-importable, and a resolved candidate without its lead would be lost.
+  await db.transaction(async tx => {
+    await tx.insert(schema.lead).values(leadRow(lead));
+    await tx
+      .update(schema.researchCandidate)
+      .set({ resolvedLeadId: lead.lead_id })
+      .where(eq(schema.researchCandidate.id, candidateId));
+    await recordAudit(tx, {
+      actor: { userId: actor.userId, label: actor.name },
+      action: 'research.candidate_imported',
+      target: { type: 'lead', id: lead.lead_id },
+      metadata: {
+        candidateId,
+        targetNumber: lead.target_number,
+        company: lead.company_name,
+        researchState: lead.research_state,
+        emailStatus: lead.email_status,
+        phoneStatus: lead.phone_status,
+        approvedBy: row.reviewedByLabel ?? actor.name,
+      },
+    });
+  });
+
+  return lead.lead_id;
 }
 
 /** Candidates a human approved that have not yet become canonical leads — the export queue in PRE_CUTOVER. */

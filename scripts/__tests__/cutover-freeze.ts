@@ -8,7 +8,7 @@
  * NOTHING HERE WRITES THE REAL STORE. Every case runs inside a temp workspace that the test `process.chdir()`s
  * into, and the suite hashes the three real files before and after itself to prove it.
  */
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createHash } from 'crypto';
@@ -214,6 +214,41 @@ group('4. Migration tooling stays functional and is not a normal operator write 
   const writes = (store.match(/safeWriteJson\(|appendJsonl\(/g) ?? []).length;
   assert(guarded === 3, 'store.ts guards exactly three write entry points', guarded);
   assert(writes === 3, 'store.ts performs exactly three writes', writes);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('4b. database/suppression.json has exactly one legitimate writer');
+{
+  // The lead and event stores are frozen outright. The suppression artifact is the one exception: it is DERIVED
+  // state that the audited ADR-010 publisher maintains. That exception must be exactly one module wide.
+  const osRoot = join(REPO, 'os/server');
+  const listTs = (dir: string): string[] =>
+    readdirSync(dir).flatMap(f => {
+      const full = join(dir, f);
+      return statSync(full).isDirectory() ? listTs(full) : full.endsWith('.ts') ? [full] : [];
+    });
+
+  const writers = listTs(osRoot).filter(f => {
+    const src = readFileSync(f, 'utf-8');
+    return /suppression\.json/.test(src) && /writeFileSync|appendFileSync|renameSync|writeFile\(/.test(src);
+  });
+  assert(writers.length === 1, 'exactly one module in os/server writes the suppression artifact', writers.map(w => w.slice(REPO.length + 1)));
+  assert(
+    writers[0]?.endsWith('sync/suppression-artifact-store.ts'),
+    'and it is the dedicated artifact store',
+    writers[0]?.slice(REPO.length + 1)
+  );
+
+  // The legacy CLI path stays frozen: the publisher is an addition, not a loophole.
+  const dir = newWorkspace('POST_CUTOVER');
+  inWorkspace(dir, () => {
+    const err = thrown(() => addSuppression({ email: 'x@example.invalid', reason: 'TEST', suppressed_at: '2026-09-17T00:00:00.000Z', source: 'cutover-freeze test' }));
+    assert(err instanceof LegacyStoreFrozenError, 'the legacy suppress:add path is still refused after cutover');
+  });
+
+  // The publisher never writes the lead or event stores.
+  const store = readFileSync(join(REPO, 'os/server/sync/suppression-artifact-store.ts'), 'utf-8');
+  assert(!/kachmo_leads\.json|events\.jsonl/.test(store), 'the publisher cannot touch the frozen lead or event stores');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

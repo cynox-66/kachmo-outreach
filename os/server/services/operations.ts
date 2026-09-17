@@ -5,7 +5,8 @@ import { buildInventoryReport, researchNeeds, type InventoryReport } from '@kach
 import { buildWeeklyReport } from '@kachmo/core/reports/weekly.js';
 import { findEmailQueueIssues } from '@kachmo/core/email-ledger/queue-check.js';
 import { EMAIL_SENT_STATUSES } from '@kachmo/core/email-ledger/tracker.js';
-import { suppressionFreshness } from '@kachmo/core/reconciliation/publish.js';
+import { verifySuppressionArtifact } from '@kachmo/core/reconciliation/suppression-artifact.js';
+import { readSuppressionArtifact, sha256 } from '../sync/suppression-artifact-store';
 import type { KachmoLead } from '@kachmo/core/leads/schema.js';
 import type { Actor } from '../authz/authorize';
 import { contactsFor } from './contacts';
@@ -212,9 +213,17 @@ export async function getEmailLedger(actor: Actor, snapshot?: CanonicalSnapshot)
 
   const issues = findEmailQueueIssues(snap.scheduled, snap.leads, snap.suppression, snap.tracker);
 
-  // In PRE_CUTOVER both lists are the same file, so this is trivially fresh; it becomes meaningful after cutover.
-  const published = snap.suppression;
-  const freshness = suppressionFreshness(snap.suppression, published);
+  // The artifact the dispatcher reads is a FILE, and after cutover canonical suppression is in Postgres. Comparing
+  // the canonical list against itself would report "fresh" no matter what the file actually contains, which is the
+  // one answer that can get someone emailed after they opted out. Read the artifact and compare against it.
+  const artifact = readSuppressionArtifact();
+  const verdict = verifySuppressionArtifact({ canonicalActive: snap.suppression, artifactRaw: artifact.raw, hash: sha256 });
+  const freshness = {
+    fresh: verdict.status === 'IN_SYNC',
+    unpublished: verdict.missing.length,
+    outreachAllowed: verdict.outreachAllowed,
+    reason: verdict.reason,
+  };
 
   return {
     rows: rows.sort((a, b) => a.targetNumber.localeCompare(b.targetNumber)),

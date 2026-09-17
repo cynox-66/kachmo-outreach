@@ -259,12 +259,15 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
     unblockedBy: string;
     note: string;
     scheduledQueueEntriesHeld: number;
+    mechanismReady: boolean;
+    productionArtifactPublished: boolean;
   };
 
   assert(marker.paused === true, 'OUTREACH_PAUSE.json records the pause');
-  assert(/POST_CUTOVER/.test(marker.reason), 'the recorded reason names the cutover as the cause', marker.reason);
   assert(/NOT AN OPERATIONAL FAILURE/i.test(marker.note), 'the marker says this is an intentional pause, not a failure');
-  assert(/DOES NOT exist/i.test(marker.note), 'the marker states plainly that suppression sync does not exist');
+  assert(marker.mechanismReady === true, 'the marker records that the publish mechanism now exists');
+  assert(marker.productionArtifactPublished === false, 'the marker records that production has NOT been published yet');
+  assert(/human/i.test(marker.unblockedBy), 'resuming is recorded as requiring a human act', marker.unblockedBy);
 
   // While the marker says paused, the workflow must carry no ACTIVE schedule trigger. Commented-out cron lines
   // are how the pause is expressed and are expected; an uncommented one would let GitHub fire the dispatcher.
@@ -281,6 +284,14 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   assert(gateAt > 0, 'the workflow has an outreach pause gate step');
   assert(gateAt < dispatchAt, 'the pause gate runs before the dispatcher step');
   assert(workflow.indexOf('Install dependencies') > gateAt, 'the pause gate fails fast, before dependencies are installed');
+
+  // The ADR-010 safety sequence: publish suppression, verify it, only then dispatch.
+  const publishAt = workflow.indexOf('Publish suppression from Postgres');
+  const verifyAt = workflow.indexOf('Verify suppression artifact matches Postgres');
+  assert(publishAt > 0 && verifyAt > publishAt, 'the workflow publishes suppression, then verifies it');
+  assert(verifyAt < dispatchAt, 'suppression is verified BEFORE the dispatcher runs');
+  assert(/suppression:verify/.test(workflow), 'verification runs the real verifier, not a file-existence check');
+  assert(/git add .*database\/suppression\.json/.test(workflow), 'the published artifact is committed, since the dispatcher reads the committed file');
 
   // Execute the gate exactly as the workflow would. A scheduled run supplies no inputs, so both are empty.
   const gateScript = workflow.split("run: |\n          node -e '")[1]?.split("\n          '")[0];
