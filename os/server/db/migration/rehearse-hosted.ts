@@ -12,9 +12,10 @@
  * This command NEVER runs against production, and the plain `db:rehearse` path never learns how to reach a hosted
  * database at all.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config as loadEnvFile } from 'dotenv';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -24,6 +25,17 @@ import { rehearse, type RehearsalTarget, type RehearsalResult } from './rehearse
 import { authorizeHostedRehearsal, safeTargetLabel, type HostedAuthorization } from './hosted-target';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const OS_ROOT = resolve(HERE, '../../..');
+
+/**
+ * Loads os/.env.local, which is gitignored and is where the operator puts the disposable connection string.
+ * Next loads it automatically; a tsx script does not, so this is explicit. Values already in the environment win,
+ * so an env-file entry can never silently override something the operator exported deliberately.
+ */
+export function loadLocalEnv(): void {
+  const file = join(OS_ROOT, '.env.local');
+  if (existsSync(file)) loadEnvFile({ path: file, override: false, quiet: true });
+}
 
 /** Bounded so a rehearsal against an unreachable host fails rather than hanging indefinitely. */
 export const HOSTED_CONNECT_TIMEOUT_MS = 15_000;
@@ -58,6 +70,8 @@ export async function createHostedTarget(connectionString: string): Promise<Rehe
 export interface HostedRehearsalResult extends RehearsalResult {
   /** Host and database only — never the credentials. */
   target: string;
+  /** The throwaway project that must be destroyed once this run is recorded. */
+  disposableProject: string;
 }
 
 export async function rehearseHosted(
@@ -69,10 +83,11 @@ export async function rehearseHosted(
   if (!authorization.authorized) throw new HostedRehearsalRefused(authorization);
   const url = env.DATABASE_URL!;
   const result = await rehearse(ref, () => openTarget(url));
-  return { ...result, target: safeTargetLabel(url) };
+  return { ...result, target: safeTargetLabel(url), disposableProject: authorization.project! };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  loadLocalEnv();
   const ref = process.argv.find(a => a.startsWith('--ref='))?.slice(6) ?? 'HEAD';
   rehearseHosted(process.env, ref)
     .then(result => {
@@ -80,14 +95,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       mkdirSync(outDir, { recursive: true });
       const file = join(outDir, `hosted-rehearsal-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
       writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
-      console.log(`\n🌐 HOSTED migration rehearsal — target ${result.target}, source ${result.commit.slice(0, 12)}`);
+      console.log(`\n🌐 HOSTED migration rehearsal — target ${result.target}`);
+      console.log(`   throwaway project: ${result.disposableProject} · source commit ${result.commit.slice(0, 12)}`);
       console.log(`   ${result.source.leads} leads · ${result.source.suppression} suppression entries · ${result.source.events} events`);
       for (const c of result.report.checks) console.log(`   ${c.ok ? '✅' : '❌'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
       console.log(`   ${result.secondImportRefused ? '✅' : '❌'} a second import into a populated database is refused`);
       console.log(`   ${result.losslessByHash ? '✅' : '❌'} stored lead records hash identically to the source records`);
       console.log(`   report: ${file}`);
       const ok = result.report.ok && result.secondImportRefused && result.losslessByHash;
-      console.log(ok ? '\n✅ Hosted rehearsal passed. DESTROY the disposable database now.' : '\n❌ Hosted rehearsal FAILED. Do not migrate.');
+      console.log(ok ? `\n✅ Hosted rehearsal passed. NOW DESTROY the throwaway project "${result.disposableProject}".` : '\n❌ Hosted rehearsal FAILED. Do not migrate.');
       process.exit(ok ? 0 : 1);
     })
     .catch(err => {

@@ -21,6 +21,7 @@ import { importCanonicalSource } from '../server/db/migration/import';
 import { reconcile } from '../server/db/migration/reconcile';
 import { rehearse, snapshotFromGit, codeRevision, significantDirtyPaths } from '../server/db/migration/rehearse';
 import { describeSchema } from '../server/db/migration/manifest';
+import { authorizeHostedRehearsal, DISPOSABLE_ACKNOWLEDGEMENT, safeTargetLabel } from '../server/db/migration/hosted-target';
 import { canonicalSha256 } from '../server/db/migration/canonical';
 import { leadRow } from '../server/db/migration/transform';
 import type { KachmoLead } from '@kachmo/core/leads/schema.js';
@@ -316,6 +317,49 @@ group('6. Reconciliation detects tampering, not just success');
   const r4 = await reconcile(db.db, reordered);
   assert(!r4.ok && r4.checks.some(c => !c.ok && c.name.includes('events identical')), 'reordered events fail reconciliation (order carries meaning)');
   await db.close();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('6b. The hosted rehearsal gate: DATABASE_URL is not authorisation');
+{
+  const HOST = 'ep-throwaway-abc123.eu-central-1.aws.neon.tech';
+  const SECRET = 'SUPER-SECRET-PASSWORD';
+  const URL_ = `postgresql://user:${SECRET}@${HOST}/neondb?sslmode=require`;
+  const full = {
+    DATABASE_URL: URL_,
+    KACHMO_REHEARSE_CONFIRM_HOST: HOST,
+    KACHMO_REHEARSE_DISPOSABLE: DISPOSABLE_ACKNOWLEDGEMENT,
+    KACHMO_REHEARSE_PROJECT: 'kachmo-outbound-rehearsal',
+  };
+  const denied = (over: Record<string, string | undefined>) => authorizeHostedRehearsal({ ...full, ...over });
+
+  assert(authorizeHostedRehearsal(full).authorized, 'a fully acknowledged throwaway target is authorised');
+  assert(authorizeHostedRehearsal(full).project === 'kachmo-outbound-rehearsal', 'and the throwaway project is recorded for the cleanup obligation');
+
+  assert(denied({ DATABASE_URL: undefined }).code === 'NO_DATABASE_URL', 'no connection string → refused');
+  assert(denied({ DATABASE_URL: 'nonsense' }).code === 'MALFORMED_DATABASE_URL', 'a malformed connection string → refused');
+  assert(denied({ DATABASE_URL: 'https://example.com/db' }).code === 'MALFORMED_DATABASE_URL', 'a non-PostgreSQL URL → refused');
+  assert(denied({ KACHMO_REHEARSE_CONFIRM_HOST: undefined }).code === 'NO_CONFIRMATION', 'DATABASE_URL alone is NOT authorisation — the host must be named');
+  assert(denied({ KACHMO_REHEARSE_CONFIRM_HOST: 'ep-other.neon.tech' }).code === 'WRONG_CONFIRMATION', 'naming a different host → refused');
+  assert(denied({ KACHMO_REHEARSE_DISPOSABLE: undefined }).code === 'NO_DISPOSABLE_ACKNOWLEDGEMENT', 'without the disposability acknowledgement → refused');
+  assert(denied({ KACHMO_REHEARSE_DISPOSABLE: 'yes' }).code === 'NO_DISPOSABLE_ACKNOWLEDGEMENT', 'and an approximate acknowledgement does not count');
+  assert(denied({ KACHMO_REHEARSE_PROJECT: undefined }).code === 'NO_DISPOSABLE_PROJECT', 'the throwaway project must be named, so the cleanup obligation is written down');
+  assert(denied({ KACHMO_REHEARSE_PROJECT: 'kachmo-production' }).code === 'PROJECT_LOOKS_LIKE_PRODUCTION', 'a production-looking project name → refused');
+  assert(denied({ DATABASE_URL: `postgresql://u:p@ep-prod-main.neon.tech/db`, KACHMO_REHEARSE_CONFIRM_HOST: 'ep-prod-main.neon.tech' }).code === 'TARGET_LOOKS_LIKE_PRODUCTION', 'a production-looking host → refused');
+
+  // The denylist is the one check no acknowledgement can satisfy.
+  assert(denied({ KACHMO_PRODUCTION_HOSTS: `something.else, ${HOST}` }).code === 'TARGET_ON_PRODUCTION_DENYLIST', 'a denylisted host is refused despite every acknowledgement being present');
+  assert(denied({ KACHMO_PRODUCTION_HOSTS: HOST.toUpperCase() }).code === 'TARGET_ON_PRODUCTION_DENYLIST', 'and the denylist is case-insensitive');
+
+  // Nothing about a refusal may carry the credential.
+  const everyResult = [authorizeHostedRehearsal(full), denied({ KACHMO_REHEARSE_CONFIRM_HOST: 'x' }), denied({ KACHMO_REHEARSE_PROJECT: undefined }), denied({ KACHMO_PRODUCTION_HOSTS: HOST })];
+  assert(everyResult.every(r => !JSON.stringify(r).includes(SECRET)), 'no authorisation result contains the password');
+  assert(everyResult.every(r => !JSON.stringify(r).includes('user:')), 'nor the username');
+  assert(safeTargetLabel(URL_) === `postgresql://${HOST}/neondb`, 'the target label is scheme, host and database only');
+  assert(!safeTargetLabel(URL_).includes(SECRET), 'and never the credential');
+
+  const src = readFileSync(join(OS, 'server/db/migration/rehearse.ts'), 'utf-8');
+  assert(!/DATABASE_URL|neon|postgresql:\/\//i.test(src), 'the DEFAULT rehearsal still never learns how to reach a hosted database');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

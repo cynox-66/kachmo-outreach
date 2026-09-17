@@ -17,6 +17,9 @@ export type HostedRefusalCode =
   | 'NO_CONFIRMATION'
   | 'WRONG_CONFIRMATION'
   | 'NO_DISPOSABLE_ACKNOWLEDGEMENT'
+  | 'NO_DISPOSABLE_PROJECT'
+  | 'PROJECT_LOOKS_LIKE_PRODUCTION'
+  | 'TARGET_ON_PRODUCTION_DENYLIST'
   | 'TARGET_LOOKS_LIKE_PRODUCTION';
 
 export interface HostedAuthorization {
@@ -25,6 +28,8 @@ export interface HostedAuthorization {
   /** Safe to print and to log: host only, never the credentials. */
   host: string | null;
   database: string | null;
+  /** The throwaway project the operator named, recorded so the cleanup obligation is auditable. */
+  project: string | null;
   message: string;
 }
 
@@ -39,6 +44,20 @@ const PRODUCTION_MARKERS = [/(^|[-_.])prod(uction)?([-_.]|$)/i, /(^|[-_.])live([
 
 const looksLikeProduction = (value: string): boolean => PRODUCTION_MARKERS.some(re => re.test(value));
 
+/**
+ * Hosts that must NEVER be a rehearsal target, however the environment is configured.
+ *
+ * This is the one check no acknowledgement can satisfy: the markers above are a heuristic over names, but a real
+ * production endpoint should be refused by identity. Populate KACHMO_PRODUCTION_HOSTS with the real hosts once they
+ * exist, and this gate stops depending on anybody spelling "production" in a branch name.
+ */
+function denylistedHosts(env: HostedEnvironment): string[] {
+  return (env.KACHMO_PRODUCTION_HOSTS ?? '')
+    .split(',')
+    .map(h => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 /** Only the three variables that matter are read; anything else in the environment is ignored. */
 export type HostedEnvironment = Record<string, string | undefined>;
 
@@ -52,6 +71,7 @@ export function authorizeHostedRehearsal(env: HostedEnvironment): HostedAuthoriz
     code,
     host,
     database,
+    project: null,
     message,
   });
 
@@ -96,7 +116,38 @@ export function authorizeHostedRehearsal(env: HostedEnvironment): HostedAuthoriz
     return deny(
       'NO_DISPOSABLE_ACKNOWLEDGEMENT',
       `Refusing to rehearse: a rehearsal imports real leads and then deliberately provokes failures, so the target must be throwaway. ` +
-        `Set KACHMO_REHEARSE_DISPOSABLE=${DISPOSABLE_ACKNOWLEDGEMENT} once you have confirmed ${host} is a disposable branch.`,
+        `Set KACHMO_REHEARSE_DISPOSABLE=${DISPOSABLE_ACKNOWLEDGEMENT} once you have confirmed ${host} is disposable.`,
+      host,
+      database
+    );
+  }
+
+  // A throwaway PROJECT's primary branch is a legitimate target — it is thrown away with the project. What is not
+  // legitimate is leaving "which project gets deleted afterwards" implicit, so the operator must name it.
+  const project = env.KACHMO_REHEARSE_PROJECT?.trim();
+  if (!project) {
+    return deny(
+      'NO_DISPOSABLE_PROJECT',
+      `Refusing to rehearse: name the throwaway project this target belongs to with KACHMO_REHEARSE_PROJECT. ` +
+        `It is recorded in the manifest, so the obligation to destroy it afterwards is written down rather than remembered.`,
+      host,
+      database
+    );
+  }
+  if (looksLikeProduction(project)) {
+    return deny(
+      'PROJECT_LOOKS_LIKE_PRODUCTION',
+      `Refusing to rehearse: the project named in KACHMO_REHEARSE_PROJECT ("${project}") looks like a production project.`,
+      host,
+      database
+    );
+  }
+
+  // Checked last and deliberately un-overridable: no acknowledgement makes a known production host acceptable.
+  if (denylistedHosts(env).includes(host.toLowerCase())) {
+    return deny(
+      'TARGET_ON_PRODUCTION_DENYLIST',
+      `Refusing to rehearse against ${host}: it is listed in KACHMO_PRODUCTION_HOSTS. No acknowledgement overrides this.`,
       host,
       database
     );
@@ -106,13 +157,20 @@ export function authorizeHostedRehearsal(env: HostedEnvironment): HostedAuthoriz
     return deny(
       'TARGET_LOOKS_LIKE_PRODUCTION',
       `Refusing to rehearse against ${host}${database ? `/${database}` : ''}: the name looks like a production target. ` +
-        `Rehearse against a disposable branch. If this really is disposable, rename it.`,
+        `Rehearse against a disposable project. If this really is disposable, rename it.`,
       host,
       database
     );
   }
 
-  return { authorized: true, code: null, host, database, message: `Authorized: ${host}${database ? `/${database}` : ''} confirmed as a disposable rehearsal target.` };
+  return {
+    authorized: true,
+    code: null,
+    host,
+    database,
+    project,
+    message: `Authorized: ${host}${database ? `/${database}` : ''} in throwaway project "${project}". DESTROY THE PROJECT when the rehearsal finishes.`,
+  };
 }
 
 /** Redacts a connection string for logging: scheme, host and database only, never user or password. */
