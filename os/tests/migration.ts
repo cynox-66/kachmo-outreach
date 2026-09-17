@@ -22,6 +22,8 @@ import { reconcile } from '../server/db/migration/reconcile';
 import { rehearse, snapshotFromGit, codeRevision, significantDirtyPaths } from '../server/db/migration/rehearse';
 import { describeSchema } from '../server/db/migration/manifest';
 import { authorizeHostedRehearsal, DISPOSABLE_ACKNOWLEDGEMENT, safeTargetLabel } from '../server/db/migration/hosted-target';
+import { preflight, DATA_MIGRATION_ACKNOWLEDGEMENT } from '../server/db/migration/migrate-data';
+import { LOCAL_ENV_FILE } from '../server/db/local-env';
 import { canonicalSha256 } from '../server/db/migration/canonical';
 import { leadRow } from '../server/db/migration/transform';
 import type { KachmoLead } from '@kachmo/core/leads/schema.js';
@@ -360,6 +362,75 @@ group('6b. The hosted rehearsal gate: DATABASE_URL is not authorisation');
 
   const src = readFileSync(join(OS, 'server/db/migration/rehearse.ts'), 'utf-8');
   assert(!/DATABASE_URL|neon|postgresql:\/\//i.test(src), 'the DEFAULT rehearsal still never learns how to reach a hosted database');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('6c. The production data-migration preflight');
+{
+  const HOST = 'ep-prodtarget-xyz.eu-central-1.aws.neon.tech';
+  const SECRET = 'PRODUCTION-PASSWORD';
+  const full = {
+    DATABASE_URL: `postgresql://user:${SECRET}@${HOST}/neondb`,
+    KACHMO_MIGRATE_CONFIRM_HOST: HOST,
+    KACHMO_MIGRATE_CONFIRM_DATA: DATA_MIGRATION_ACKNOWLEDGEMENT,
+  };
+  const clean = (): { commit: string; dirty: boolean; dirtyPaths: string[] } => ({ commit: 'a'.repeat(40), dirty: false, dirtyPaths: [] });
+  const source = loadCanonicalSource(sourceDir);
+  const run = (env: Record<string, string | undefined>, countRows: () => Promise<Record<string, number>>, revision = clean) =>
+    preflight(env, { countRows, loadSource: () => source, revision });
+  const empty = async () => ({ lead: 0, suppression_entry: 0, analytics_event: 0 });
+  const codeOf = (r: Awaited<ReturnType<typeof run>>) => r.checks.find(c => !c.ok)?.code ?? null;
+
+  const okReport = await run(full, empty);
+  assert(okReport.ok, 'a confirmed, clean, empty, valid target passes preflight', okReport.checks.filter(c => !c.ok));
+  assert(okReport.host === HOST, 'and the host is reported');
+  assert(!JSON.stringify(okReport).includes(SECRET), 'no preflight report contains the password');
+
+  assert(codeOf(await run({ ...full, DATABASE_URL: undefined }, empty)) === 'NO_DATABASE_URL', 'no connection string → refused');
+  assert(codeOf(await run({ ...full, DATABASE_URL: 'nonsense' }, empty)) === 'MALFORMED_DATABASE_URL', 'a malformed connection string → refused');
+  assert(codeOf(await run({ ...full, KACHMO_MIGRATE_CONFIRM_HOST: undefined }, empty)) === 'NO_HOST_CONFIRMATION', 'the exact host must be named');
+  assert(codeOf(await run({ ...full, KACHMO_MIGRATE_CONFIRM_HOST: 'ep-other.neon.tech' }, empty)) === 'WRONG_HOST_CONFIRMATION', 'naming a different host → refused');
+  assert(codeOf(await run({ ...full, KACHMO_MIGRATE_CONFIRM_DATA: undefined }, empty)) === 'NO_DATA_ACKNOWLEDGEMENT', 'migrating real leads must be acknowledged');
+  assert(codeOf(await run({ ...full, KACHMO_MIGRATE_CONFIRM_DATA: 'ok' }, empty)) === 'NO_DATA_ACKNOWLEDGEMENT', 'and an approximate acknowledgement does not count');
+
+  const dirty = await run(full, empty, () => ({ commit: 'a'.repeat(40), dirty: true, dirtyPaths: ['core/qualification/gates.ts'] }));
+  assert(codeOf(dirty) === 'DIRTY_WORKING_TREE', 'a dirty tree → refused: the migrated snapshot must be reproducible from a commit');
+  assert(dirty.checks.some(c => !c.ok && c.detail.includes('core/qualification/gates.ts')), 'and the offending path is named');
+
+  const occupied = await run(full, async () => ({ lead: 120, suppression_entry: 0, analytics_event: 240 }));
+  assert(codeOf(occupied) === 'TARGET_NOT_EMPTY', 'a populated target → refused; a migration never merges into existing rows');
+  assert(occupied.checks.some(c => !c.ok && c.detail.includes('lead=120')), 'and says what is already there');
+
+  // The two failures an operator must never confuse.
+  const missingSchema = await run(full, async () => { throw Object.assign(new Error('relation "lead" does not exist'), { code: '42P01' }); });
+  assert(codeOf(missingSchema) === 'SCHEMA_NOT_APPLIED', 'a target with no schema is reported as such, not as an opaque query failure');
+  assert(missingSchema.checks.some(c => !c.ok && c.detail.includes('db:migrate')), 'and names the command that fixes it');
+  const unreachable = await run(full, async () => { throw Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' }); });
+  assert(codeOf(unreachable) === 'TARGET_UNREACHABLE', 'an unreachable host is reported as unreachable, not as a missing table');
+
+  // A failing preflight must stop at the first thing that touches the database.
+  assert(occupied.checks.filter(c => !c.ok).length >= 1 && missingSchema.checks.every(c => c.name !== 'the target tables are empty'), 'when the schema is absent, emptiness is not also claimed to have been checked');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('6d. Operator commands read the documented local config');
+{
+  assert(LOCAL_ENV_FILE.endsWith('/.env.local') && LOCAL_ENV_FILE.includes('/os/'), 'the local env file is os/.env.local', LOCAL_ENV_FILE);
+  const localEnv = readFileSync(join(OS, 'server/db/local-env.ts'), 'utf-8');
+  assert(/override: false/.test(localEnv), 'an env-file value never overrides one already exported deliberately');
+  assert(!/console\.|return .*parsed/.test(localEnv), 'the loader never prints or returns the file contents');
+
+  // Every operator-facing database command must read the place the operator is told to put the connection string.
+  for (const cmd of ['server/db/migrate.ts', 'server/db/migration/migrate-data.ts', 'server/db/migration/rehearse-hosted.ts']) {
+    assert(/loadLocalEnv\(\)/.test(readFileSync(join(OS, cmd), 'utf-8')), `${cmd} loads os/.env.local`);
+  }
+  // …and the PGlite-only rehearsal still must not.
+  assert(!/loadLocalEnv/.test(readFileSync(join(OS, 'server/db/migration/rehearse.ts'), 'utf-8')), 'the default rehearsal does not, because it has no hosted target to configure');
+
+  const schemaMigrate = readFileSync(join(OS, 'server/db/migrate.ts'), 'utf-8');
+  assert(/node-postgres/.test(schemaMigrate) && !/neon-http/.test(schemaMigrate), 'schema migration uses the transport the hosted rehearsal proved, so DDL is transactional');
+  assert(/rejectUnauthorized: true/.test(schemaMigrate), 'and always verifies the server certificate');
+  assert(!/importCanonicalSource|insert\(/.test(schemaMigrate), 'db:migrate applies schema only; it contains no data import');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

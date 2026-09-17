@@ -31,6 +31,7 @@ import { reconcile } from './reconcile';
 import { buildManifest, type MigrationManifest } from './manifest';
 import { snapshotFromGit, codeRevision } from './rehearse';
 import { safeTargetLabel } from './hosted-target';
+import { loadLocalEnv } from '../local-env';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,8 @@ export type PreflightCode =
   | 'NO_DATA_ACKNOWLEDGEMENT'
   | 'DIRTY_WORKING_TREE'
   | 'TARGET_NOT_EMPTY'
+  | 'TARGET_UNREACHABLE'
+  | 'SCHEMA_NOT_APPLIED'
   | 'SOURCE_INVALID';
 
 export interface PreflightCheck {
@@ -128,7 +131,26 @@ export async function preflight(
     add('the source passes the engine’s own validation', false, 'SOURCE_INVALID', (e as Error).message.split('\n')[0]);
   }
 
-  const counts = await opts.countRows();
+  // Counting the target is the first thing that actually touches the database, so it is also where "cannot reach
+  // it" and "the schema is not there yet" have to be told apart. Reported as the same opaque query failure, an
+  // operator could spend a long time looking for a missing table on a host they never connected to.
+  let counts: Record<string, number>;
+  try {
+    counts = await opts.countRows();
+  } catch (e) {
+    const err = e as { code?: string; cause?: { code?: string }; message: string };
+    const code = err.code ?? err.cause?.code;
+    if (code === '42P01' || /relation .* does not exist/i.test(err.message)) {
+      add('the schema is applied', false, 'SCHEMA_NOT_APPLIED', `the target has no lead table yet — run "npm run db:migrate" against ${host} first`);
+    } else if (code && ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNRESET'].includes(code)) {
+      add('the target is reachable', false, 'TARGET_UNREACHABLE', `could not connect to ${host} (${code}) — nothing was contacted beyond the attempt`);
+    } else {
+      add('the target is reachable', false, 'TARGET_UNREACHABLE', `could not read the target: ${err.message.split('\n')[0]}`);
+    }
+    return { ok: false, checks, host, sourceCommit };
+  }
+  add('the schema is applied and the target is reachable', true, null, `${Object.keys(counts).length} migration tables readable on ${host}`);
+
   const occupied = Object.entries(counts).filter(([, n]) => n > 0);
   add(
     'the target tables are empty',
@@ -213,6 +235,7 @@ export async function migrateData(env: MigrationEnvironment, opts: { apply: bool
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  loadLocalEnv();
   const apply = process.argv.includes('--apply');
   migrateData(process.env, { apply, ref: process.argv.find(a => a.startsWith('--ref='))?.slice(6) })
     .then(result => {
@@ -237,7 +260,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     })
     .catch(err => {
       console.error(`\n❌ Migration aborted: ${(err as Error).message}`);
-      console.error('   Nothing was repaired automatically. Investigate before retrying.');
+      console.error('   Nothing was written and nothing was repaired automatically. Investigate before retrying.');
       process.exit(1);
     });
 }

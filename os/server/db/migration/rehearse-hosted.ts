@@ -12,10 +12,9 @@
  * This command NEVER runs against production, and the plain `db:rehearse` path never learns how to reach a hosted
  * database at all.
  */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config as loadEnvFile } from 'dotenv';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -23,19 +22,9 @@ import * as schema from '../schema/index';
 import { MIGRATIONS_FOLDER } from '../rehearsal-db';
 import { rehearse, type RehearsalTarget, type RehearsalResult } from './rehearse';
 import { authorizeHostedRehearsal, safeTargetLabel, type HostedAuthorization } from './hosted-target';
+import { loadLocalEnv } from '../local-env';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OS_ROOT = resolve(HERE, '../../..');
-
-/**
- * Loads os/.env.local, which is gitignored and is where the operator puts the disposable connection string.
- * Next loads it automatically; a tsx script does not, so this is explicit. Values already in the environment win,
- * so an env-file entry can never silently override something the operator exported deliberately.
- */
-export function loadLocalEnv(): void {
-  const file = join(OS_ROOT, '.env.local');
-  if (existsSync(file)) loadEnvFile({ path: file, override: false, quiet: true });
-}
 
 /** Bounded so a rehearsal against an unreachable host fails rather than hanging indefinitely. */
 export const HOSTED_CONNECT_TIMEOUT_MS = 15_000;
