@@ -16,11 +16,20 @@ import { config as loadEnvFile } from 'dotenv';
  * The file is gitignored. Nothing here prints or returns its contents.
  */
 const OS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const REPO_ROOT = resolve(OS_ROOT, '..');
 
 export const LOCAL_ENV_FILE = join(OS_ROOT, '.env.local');
+/** The neighbouring path an operator is most likely to use by mistake. Never loaded — only reported. */
+export const MISPLACED_ENV_FILE = join(REPO_ROOT, '.env.local');
 
-export function loadLocalEnv(): { loaded: boolean; path: string } {
-  if (!existsSync(LOCAL_ENV_FILE)) return { loaded: false, path: LOCAL_ENV_FILE };
+export function loadLocalEnv(): { loaded: boolean; path: string; misplaced: string | null } {
+  // A connection string one directory up is silently invisible, and the command then claims DATABASE_URL is
+  // unset while the operator is looking straight at the file. Say so instead.
+  const misplaced = existsSync(MISPLACED_ENV_FILE) ? MISPLACED_ENV_FILE : null;
+  if (misplaced) {
+    console.warn(`⚠️  Ignoring ${MISPLACED_ENV_FILE}: configuration belongs in ${LOCAL_ENV_FILE}. Move it, and check it is gitignored.`);
+  }
+  if (!existsSync(LOCAL_ENV_FILE)) return { loaded: false, path: LOCAL_ENV_FILE, misplaced };
   loadEnvFile({ path: LOCAL_ENV_FILE, override: false, quiet: true });
-  return { loaded: true, path: LOCAL_ENV_FILE };
+  return { loaded: true, path: LOCAL_ENV_FILE, misplaced };
 }
