@@ -1,0 +1,6 @@
+{
+  "phase": "POST_CUTOVER",
+  "declaredAt": "2026-09-17T06:05:36.778Z",
+  "migrationCommit": "71b9eed55328f4583b3e9bfa519bd8f894df7893",
+  "note": "Postgres is canonical. database/kachmo_leads.json, database/suppression.json and analytics/events.jsonl are frozen evidence of exactly what was migrated (120 leads, 240 events, 0 suppression entries; lead-record hash 57e963a2cb15eb6579c177a46b5e84fee30b74db1dac23c129ece6a2c73ba6a9). The legacy CLI writers refuse while this file declares POST_CUTOVER. Changing it back is a deliberate act that requires reconciling both stores by hand first."
+}

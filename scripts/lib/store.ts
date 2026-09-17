@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { safeReadJson, safeWriteJson, createBackup, pruneBackups, appendJsonl, readJsonl } from './safe-io.js';
 import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from './schema.js';
 import { findInvariantViolations } from './invariants.js';
+import { assertLegacyStoreWritable, warnIfReadingFrozenStore } from './cutover.js';
 import { validateLeadDatabase } from '../../core/leads/validation.js';
 import { suppressionEntryProblems, isEquivalentSuppression } from '../../core/suppression/match.js';
 
@@ -37,6 +38,7 @@ const stampOf = (p: string) => {
 
 /** Strict load. Never repairs, never substitutes defaults: a bad file stops the command. Validation rules: core/leads/validation.ts. */
 export function loadLeads(): KachmoLead[] {
+  warnIfReadingFrozenStore();
   const p = paths().leads;
   if (!existsSync(p)) throw new Error(`Lead database missing: ${p}. Run "npm run leads:migrate" first.`);
   const stamp = stampOf(p);
@@ -58,6 +60,7 @@ export function loadLeads(): KachmoLead[] {
  * `basedOn` is the array this data was derived from, when it is not the array itself (migration).
  */
 export function saveLeads(leads: KachmoLead[], opts: { basedOn?: KachmoLead[] } = {}): void {
+  assertLegacyStoreWritable('saveLeads() → database/kachmo_leads.json');
   const p = paths().leads;
   const loadedStamp = stamps.get(opts.basedOn ?? leads);
   if (loadedStamp && existsSync(p)) {
@@ -99,6 +102,7 @@ export function loadSuppression(): SuppressionEntry[] {
 
 /** Adds an entry unless an equivalent one already exists. Returns true if added. */
 export function addSuppression(entry: SuppressionEntry): boolean {
+  assertLegacyStoreWritable('addSuppression() → database/suppression.json');
   const list = loadSuppression();
   if (list.some(e => isEquivalentSuppression(e, entry))) return false;
   list.push(entry);
@@ -107,6 +111,7 @@ export function addSuppression(entry: SuppressionEntry): boolean {
 }
 
 export function logEvent(e: Omit<AnalyticsEvent, 'event_id' | 'timestamp'> & { timestamp?: string }): void {
+  assertLegacyStoreWritable('logEvent() → analytics/events.jsonl');
   appendJsonl(paths().events, { event_id: randomUUID(), timestamp: e.timestamp ?? new Date().toISOString(), ...e });
 }
 
