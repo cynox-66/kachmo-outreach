@@ -14,6 +14,9 @@ import { config as loadEnvFile } from 'dotenv';
  * never silently replace something the operator set deliberately on the command line.
  *
  * The file is gitignored. Nothing here prints or returns its contents.
+ *
+ * KACHMO_NO_LOCAL_ENV opts out entirely. Test harnesses set it: a test that spawns a migration command with a
+ * deliberately minimal environment must not silently inherit whatever real target the operator has configured.
  */
 const OS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const REPO_ROOT = resolve(OS_ROOT, '..');
@@ -23,6 +26,8 @@ export const LOCAL_ENV_FILE = join(OS_ROOT, '.env.local');
 export const MISPLACED_ENV_FILE = join(REPO_ROOT, '.env.local');
 
 export function loadLocalEnv(): { loaded: boolean; path: string; misplaced: string | null } {
+  // Checked before anything else, so an isolated process stays isolated.
+  if (process.env.KACHMO_NO_LOCAL_ENV) return { loaded: false, path: LOCAL_ENV_FILE, misplaced: null };
   // A connection string one directory up is silently invisible, and the command then claims DATABASE_URL is
   // unset while the operator is looking straight at the file. Say so instead.
   const misplaced = existsSync(MISPLACED_ENV_FILE) ? MISPLACED_ENV_FILE : null;

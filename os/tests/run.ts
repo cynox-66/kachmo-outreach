@@ -186,11 +186,18 @@ group('5. Source validation fails closed');
 // ─────────────────────────────────────────────────────────────────────────────
 group('6. Hosted migration safety');
 {
+  // A deliberately minimal environment. KACHMO_NO_LOCAL_ENV is essential, not incidental: without it the command
+  // loads os/.env.local, and these assertions run against whatever REAL target the operator has configured.
   const run = (env: Record<string, string>) =>
-    // A deliberately minimal environment: the migration command must never inherit stray credentials.
-    spawnSync(process.execPath, [join(OS, 'node_modules/tsx/dist/cli.mjs'), join(OS, 'server/db/migrate.ts')], { cwd: OS, encoding: 'utf-8', timeout: 60000, env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test', ...env } });
+    spawnSync(process.execPath, [join(OS, 'node_modules/tsx/dist/cli.mjs'), join(OS, 'server/db/migrate.ts')], {
+      cwd: OS,
+      encoding: 'utf-8',
+      timeout: 60000,
+      env: { PATH: process.env.PATH ?? '', NODE_ENV: 'test', KACHMO_NO_LOCAL_ENV: '1', ...env },
+    });
   const none = run({});
   assert(none.status !== 0 && /DATABASE_URL is not set/.test(none.stderr), 'db:migrate refuses without DATABASE_URL');
+  assert(!/neon\.tech/.test(none.stderr), 'and the isolated run saw no real target — the opt-out actually isolates', none.stderr.slice(0, 160));
   const unconfirmed = run({ DATABASE_URL: 'postgresql://user:pw@ep-test.example.invalid/db' });
   assert(unconfirmed.status !== 0 && /KACHMO_MIGRATE_CONFIRM_HOST=ep-test\.example\.invalid/.test(unconfirmed.stderr), 'db:migrate refuses without explicit confirmation of the exact target host');
   const wrong = run({ DATABASE_URL: 'postgresql://user:pw@ep-test.example.invalid/db', KACHMO_MIGRATE_CONFIRM_HOST: 'ep-other.example.invalid' });

@@ -418,7 +418,10 @@ group('6d. Operator commands read the documented local config');
   assert(LOCAL_ENV_FILE.endsWith('/.env.local') && LOCAL_ENV_FILE.includes('/os/'), 'the local env file is os/.env.local', LOCAL_ENV_FILE);
   const localEnv = readFileSync(join(OS, 'server/db/local-env.ts'), 'utf-8');
   assert(/override: false/.test(localEnv), 'an env-file value never overrides one already exported deliberately');
-  assert(!/console\.|return .*parsed/.test(localEnv), 'the loader never prints or returns the file contents');
+  // It may name a PATH (that is the misplaced-file warning); it must never surface a VALUE.
+  assert(!/\.parsed/.test(localEnv), 'the loader never reads back the parsed values');
+  assert(!/console\.[a-z]+\([^)]*process\.env/.test(localEnv), 'and never logs anything out of the environment it just populated');
+  assert(/loaded: (true|false)/.test(localEnv) && !/values|contents/.test(localEnv.split('export function')[1] ?? ''), 'it returns only whether a file was loaded, never what was in it');
 
   // Every operator-facing database command must read the place the operator is told to put the connection string.
   for (const cmd of ['server/db/migrate.ts', 'server/db/migration/migrate-data.ts', 'server/db/migration/rehearse-hosted.ts']) {
@@ -426,6 +429,14 @@ group('6d. Operator commands read the documented local config');
   }
   // …and the PGlite-only rehearsal still must not.
   assert(!/loadLocalEnv/.test(readFileSync(join(OS, 'server/db/migration/rehearse.ts'), 'utf-8')), 'the default rehearsal does not, because it has no hosted target to configure');
+
+  // The opt-out that keeps an isolated process isolated. Without it, any spawned migration command inherits the
+  // operator's real target, and a test that believes it is running against nothing runs against production.
+  const localEnvSrc = readFileSync(join(OS, 'server/db/local-env.ts'), 'utf-8');
+  assert(/KACHMO_NO_LOCAL_ENV/.test(localEnvSrc), 'a process can opt out of loading the local config entirely');
+  assert(localEnvSrc.indexOf('KACHMO_NO_LOCAL_ENV') < localEnvSrc.indexOf('existsSync(MISPLACED_ENV_FILE)'), 'and the opt-out is checked before anything else is read');
+  assert(/KACHMO_NO_LOCAL_ENV: '1'/.test(readFileSync(join(OS, 'tests/run.ts'), 'utf-8')), 'the spawned-command tests set it, so they never inherit a real target');
+  assert(/MISPLACED_ENV_FILE/.test(localEnvSrc) && !/loadEnvFile\(\{ path: MISPLACED_ENV_FILE/.test(localEnvSrc), 'a misplaced config file is reported but never loaded');
 
   const schemaMigrate = readFileSync(join(OS, 'server/db/migrate.ts'), 'utf-8');
   assert(/node-postgres/.test(schemaMigrate) && !/neon-http/.test(schemaMigrate), 'schema migration uses the transport the hosted rehearsal proved, so DDL is transactional');
