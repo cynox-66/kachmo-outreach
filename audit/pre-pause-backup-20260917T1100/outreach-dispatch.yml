@@ -1,0 +1,73 @@
+name: Timezone Outreach Dispatcher
+
+on:
+  schedule:
+    # Monday through Thursday (1-4):
+    # 08:00 UTC -> 09:00 AM London (UK) / 10:00 AM Berlin (EU)
+    - cron: '0 8 * * 1-4'
+    # 13:30 UTC -> 09:30 AM New York (EST) / Toronto (EDT)
+    - cron: '30 13 * * 1-4'
+    # 16:30 UTC -> 09:30 AM San Francisco (PST) / Los Angeles
+    - cron: '30 16 * * 1-4'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force dispatch regardless of local timezone window'
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: 'Dry run (simulate without sending)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Timezone Outreach Dispatcher
+        env:
+          TITAN_SMTP_HOST: ${{ secrets.TITAN_SMTP_HOST || 'smtpout.secureserver.net' }}
+          TITAN_SMTP_PORT: ${{ secrets.TITAN_SMTP_PORT || '587' }}
+          TITAN_EMAIL: ${{ secrets.TITAN_EMAIL || 'studios@kachmo.in' }}
+          TITAN_PASSWORD: ${{ secrets.TITAN_PASSWORD }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          npx tsx scripts/cron-dispatch.ts $ARGS
+
+      - name: Commit and push updated queue and tracker
+        run: |
+          git config --global user.name "Kachmo Outreach Bot"
+          git config --global user.email "studios@kachmo.in"
+          git add scheduled-queue.json OUTREACH_TRACKER.md
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-dispatch: updated outreach queue & tracker [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi

@@ -248,6 +248,69 @@ group('7. Send window (the dayOfWeek crash) and TLS configuration');
   assert(/rejectUnauthorized:\s*true/.test(readFileSync(join(REPO, 'scripts/cron-dispatch.ts'), 'utf-8')), 'the GitHub cron dispatcher verifies the SMTP server certificate');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
+{
+  const WORKFLOW = join(REPO, '.github/workflows/outreach-dispatch.yml');
+  const workflow = readFileSync(WORKFLOW, 'utf-8');
+  const marker = JSON.parse(readFileSync(join(REPO, 'OUTREACH_PAUSE.json'), 'utf-8')) as {
+    paused: boolean;
+    reason: string;
+    unblockedBy: string;
+    note: string;
+    scheduledQueueEntriesHeld: number;
+  };
+
+  assert(marker.paused === true, 'OUTREACH_PAUSE.json records the pause');
+  assert(/POST_CUTOVER/.test(marker.reason), 'the recorded reason names the cutover as the cause', marker.reason);
+  assert(/NOT AN OPERATIONAL FAILURE/i.test(marker.note), 'the marker says this is an intentional pause, not a failure');
+  assert(/DOES NOT exist/i.test(marker.note), 'the marker states plainly that suppression sync does not exist');
+
+  // While the marker says paused, the workflow must carry no ACTIVE schedule trigger. Commented-out cron lines
+  // are how the pause is expressed and are expected; an uncommented one would let GitHub fire the dispatcher.
+  const activeCron = workflow
+    .split('\n')
+    .filter(l => /^\s*-\s*cron:/.test(l) && !/^\s*#/.test(l));
+  assert(!marker.paused || activeCron.length === 0, 'no active cron schedule while dispatch is paused', activeCron);
+  assert(/^\s*#\s*schedule:/m.test(workflow), 'the schedule block is present but commented out, so resuming is a one-line change');
+  assert(/AUTOMATED DISPATCH IS PAUSED/.test(workflow), 'the workflow states the pause at the top of its triggers');
+
+  // The gate must run BEFORE anything can dispatch, or it protects nothing.
+  const gateAt = workflow.indexOf('Outreach pause gate');
+  const dispatchAt = workflow.indexOf('Run Timezone Outreach Dispatcher');
+  assert(gateAt > 0, 'the workflow has an outreach pause gate step');
+  assert(gateAt < dispatchAt, 'the pause gate runs before the dispatcher step');
+  assert(workflow.indexOf('Install dependencies') > gateAt, 'the pause gate fails fast, before dependencies are installed');
+
+  // Execute the gate exactly as the workflow would. A scheduled run supplies no inputs, so both are empty.
+  const gateScript = workflow.split("run: |\n          node -e '")[1]?.split("\n          '")[0];
+  assert(!!gateScript, 'the gate script can be extracted from the workflow');
+  const runGate = (env: Record<string, string>) =>
+    spawnSync('node', ['-e', gateScript!], { cwd: REPO, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '', ACK: '', ...env } });
+
+  const scheduled = runGate({});
+  assert(scheduled.status === 1, 'the gate REFUSES a run with no inputs (what a schedule trigger supplies)', scheduled.status);
+  assert(/Refusing to dispatch/.test(scheduled.stderr), 'the refusal says it is refusing to dispatch');
+  assert(/INTENTIONAL SAFETY PAUSE/.test(scheduled.stdout), 'the refusal identifies itself as an intentional pause');
+  assert(/Blocked until/.test(scheduled.stdout), 'the refusal names what would unblock it');
+
+  assert(runGate({ DRY_RUN: 'true' }).status === 0, 'a dry run is still allowed (it cannot send)');
+  assert(runGate({ ACK: 'true' }).status === 0, 'an explicit operator acknowledgement is allowed');
+  assert(/acknowledge_stale_suppression/.test(workflow), 'the acknowledgement is an explicit, named workflow input');
+
+  // Nothing about the pause may touch Titan send state, the ledger, or the queue.
+  const queue = JSON.parse(readFileSync(join(REPO, 'scheduled-queue.json'), 'utf-8')) as unknown[];
+  assert(Array.isArray(queue) && queue.length === 5, 'the scheduled queue still holds its 5 entries (nothing deleted)', queue.length);
+  assert(existsSync(join(REPO, 'OUTREACH_TRACKER.md')), 'the Titan email ledger is still present');
+  assert(marker.scheduledQueueEntriesHeld === queue.length, 'the marker records how many entries are being held', marker.scheduledQueueEntriesHeld);
+
+  // The pause is a workflow-level change: Titan's send logic is untouched.
+  const dispatcher = readFileSync(join(REPO, 'scripts/cron-dispatch.ts'), 'utf-8');
+  assert(!/OUTREACH_PAUSE/.test(dispatcher), 'the pause did not modify the dispatcher itself');
+  assert(!/OUTREACH_PAUSE/.test(readFileSync(join(REPO, 'scripts/send-titan-smtp.ts'), 'utf-8')), 'the pause did not modify send:titan');
+  assert(/refusing to send/i.test(dispatcher), "the dispatcher's own fail-closed suppression check is still in place");
+}
+
 for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
 console.log(`\n${'='.repeat(60)}\nTITAN SUMMARY: ${passed} passed | ${failures.length} failed`);
 if (failures.length) {

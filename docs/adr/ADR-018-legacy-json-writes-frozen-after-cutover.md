@@ -76,7 +76,11 @@ Before this freeze, `npm run suppress:add` was the manual route into that file. 
 
 The freeze did not create this gap — ADR-010 exists because of it — but it removed the manual mitigation, so the gap is now reachable in normal operation.
 
-Until the ADR-010 publisher is built, suppression must be handled deliberately: pause the dispatch workflow, or publish the entry to the committed file through a reviewed change. Unfreezing `suppress:add` is *not* the fix — it would write the suppression into the file and leave Postgres and the file disagreeing about every other field of that lead, which is exactly the divergence this decision exists to prevent.
+Unfreezing `suppress:add` is *not* the fix — it would write the suppression into the file and leave Postgres and the file disagreeing about every other field of that lead, which is exactly the divergence this decision exists to prevent.
+
+**Resolution (2026-09-17): automated dispatch is paused.** The three `schedule:` triggers in `.github/workflows/outreach-dispatch.yml` are commented out and a fail-closed gate step, reading `OUTREACH_PAUSE.json`, runs before the dispatcher. `workflow_dispatch` still allows a dry run; a real send requires an explicit `acknowledge_stale_suppression` input. Titan's send logic, ledger, queue and send state are untouched — the pause is entirely at the workflow level. See `audit/APPROVED_PRODUCTION_CHANGES_2026-09-17.md`.
+
+This closes the exposure but does **not** close the gap. Suppression synchronisation still does not exist, [ADR-010](ADR-010-one-way-suppression-publish.md) is **not** complete, and automated outreach stays paused until a publisher exists and has been verified to run. No completion date is implied. Note also that the cron executes the *committed* workflow: the pause takes effect only once pushed.
 
 ---
 
