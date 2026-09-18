@@ -9,9 +9,21 @@ const PHONE = /\+?\d[\d\s().-]{8,}\d/g;
 
 export const REDACTED = '[redacted]';
 
+/**
+ * A strict ISO-8601 date or timestamp (2026-09-12, 2026-09-12T14:32Z, 2026-09-12T14:32:05.000Z) is digit-dense
+ * enough to look phone-shaped, and masking it destroyed the dates audit rows exist to record. Only that exact
+ * shape is spared; everything else phone-shaped is still masked.
+ */
+const ISO_DATE = /(?<![\d+])\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?(?!\d)/g;
+function maskPhones(s: string): string {
+  const kept: string[] = [];
+  const guarded = s.replace(ISO_DATE, m => `\u0000${kept.push(m) - 1}\u0000`);
+  return guarded.replace(PHONE, '[phone]').replace(/\u0000(\d+)\u0000/g, (_, i) => kept[Number(i)]);
+}
+
 export function redact(value: unknown, depth = 0): unknown {
   if (depth > 12) return REDACTED;
-  if (typeof value === 'string') return value.replace(EMAIL, '[email]').replace(PHONE, '[phone]');
+  if (typeof value === 'string') return maskPhones(value.replace(EMAIL, '[email]'));
   if (Array.isArray(value)) return value.map(v => redact(v, depth + 1));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
