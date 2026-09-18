@@ -22,6 +22,9 @@ import { createRehearsalDatabase } from '../server/db/rehearsal-db';
 import * as schema from '../server/db/schema/index';
 import { publishSuppression, verifySuppression, LOCK_FILE } from '../server/sync/publish-suppression';
 import { readSuppressionArtifact, writeSuppressionArtifact, sha256, ArtifactConflictError, SUPPRESSION_ARTIFACT } from '../server/sync/suppression-artifact-store';
+import { runDispatchPreflight, evaluateDispatchPreflight } from '../server/sync/dispatch-preflight';
+import { leadRow } from '../server/db/migration/transform';
+import type { KachmoLead } from '@kachmo/core/leads/schema.js';
 
 let passed = 0;
 const failures: string[] = [];
@@ -397,6 +400,107 @@ group('Regression: an approved candidate can become a canonical lead (POST_CUTOV
 
   assert(nextTargetNumber(['001', '120']) === '121', 'the next target number follows the existing sequence');
   assert(nextTargetNumber(['001', '120']).length === 3, 'and keeps the existing zero padding');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('Dispatch preflight: the queue is checked against Postgres, not only the artifact');
+{
+  // A separate throwaway database, so the suppressions above do not bleed in.
+  const pf = await createRehearsalDatabase();
+  const pdb = pf.db;
+  const ev = (field: string, value: string) => ({
+    field, value, statedConfidence: 'HIGH' as const, reportLocation: 'p1',
+    evidence: [{ field, claim: value, sourceUrl: 'https://source.example/about', sourceDomain: 'source.example', sourceType: 'official_website' as const,
+      retrievedAt: '2026-09-16T00:00:00.000Z', retrievedContentSha256: 'abc', supportingExcerpt: 'x', level: 'SUPPORTED' as const,
+      validator: 'HUMAN' as const, validatedAt: '2026-09-16T00:00:00.000Z', contradictsEvidenceId: null, notes: null }],
+  });
+  const mkLead = (tn: string, over: Partial<KachmoLead> = {}): KachmoLead => ({
+    ...leadFromCandidate({
+      candidate: {
+        candidateId: `c${tn}`, sourceReportId: 'r', extractedAt: '2026-09-16T00:00:00.000Z', status: 'ACCEPTED' as const,
+        claims: [ev('company_name', `Synthetic ${tn}`), ev('website_url', `https://s${tn}.invalid`), ev('location_country', 'United Kingdom'), ev('archetype_id', '1'), ev('decision_maker_name', 'A Person'), ev('decision_maker_email', `dm@s${tn}.invalid`)],
+        duplicateMatches: [], suppressionMatches: 0, missingFields: [], reviewedBy: 'R', reviewedAt: '2026-09-16T00:00:00.000Z', reviewNote: null, resolvedLeadId: null,
+      },
+      targetNumber: tn, leadId: `00000000-0000-4000-8000-000000000${tn}`, approvedBy: 'R', now: '2026-09-17T00:00:00.000Z',
+    }),
+    ...over,
+  });
+  const leads = [
+    mkLead('901'), mkLead('902'), mkLead('903', { decision_maker_phone: '+44 20 7946 0903' } as Partial<KachmoLead>),
+    mkLead('904', { do_not_contact: true, research_state: 'DISQUALIFIED' } as Partial<KachmoLead>), mkLead('905', { email_outreach_status: 'OPT_OUT' } as Partial<KachmoLead>), mkLead('906'), mkLead('907'),
+  ];
+  for (const l of leads) await pdb.insert(schema.lead).values(leadRow(l));
+  let pseq = 0;
+  const sup = async (e: Partial<SuppressionEntry>, revoked = false) => pdb.insert(schema.suppressionEntry).values({
+    sequence: ++pseq, leadId: e.lead_id ?? null, targetNumber: e.target_number ?? null, companyName: null, email: e.email ?? null,
+    phone: e.phone ?? null, domain: e.domain ?? null, reason: 'TEST_OPT_OUT', suppressedAt: '2026-09-17T00:00:00.000Z', source: 'test',
+    revokedAt: revoked ? new Date() : null, revokeReason: revoked ? 'test' : null,
+  });
+  await sup({ lead_id: leads[1].lead_id });           // 902: lead_id only — invisible to cron-dispatch's matcher
+  await sup({ phone: '+44 20 7946 0903' });           // 903: phone only — invisible to cron-dispatch's matcher
+  await sup({ domain: 's906.invalid' });              // 906: domain
+  await sup({ target_number: '907' }, true);          // 907: revoked — no longer suppresses
+
+  const tracker = (rows: [string, string][]) => `## 3. Ledger\n\n### Batch 9: test\n\n| # | Target Name | Recipient Contact | Archetype | Sent Date | Follow-up Due | Current Status | Notes |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` +
+    rows.map(([tn, st]) => `| **${tn}** | **Synthetic ${tn}** | \`dm@s${tn}.invalid\` | Arch-1 | — | — | **${st}** | test |`).join('\n') + '\n';
+  const allScheduled = tracker(['901', '902', '903', '904', '905', '906', '907', '908'].map(tn => [tn, 'SCHEDULED']));
+  const pre = async (queue: unknown, trk: string | null = allScheduled, dbx = pdb) => {
+    const root = newRoot('[]\n');
+    if (queue !== undefined) writeFileSync(join(root, 'scheduled-queue.json'), typeof queue === 'string' ? queue : JSON.stringify(queue));
+    if (trk !== null) writeFileSync(join(root, 'OUTREACH_TRACKER.md'), trk);
+    return runDispatchPreflight(dbx as Parameters<typeof runDispatchPreflight>[0], root);
+  };
+  const q = (tn: string, to = `dm@s${tn}.invalid`) => ({ targetNumber: tn, to, companyName: `Synthetic ${tn}` });
+  const kinds = (r: { findings: { kind: string; target_number: string }[] }) => r.findings.map(f => `${f.kind}:${f.target_number}`);
+
+  // The gap this closes: a lead_id-only suppression publishes and verifies IN_SYNC, yet the dispatcher's own
+  // matcher (target_number / email / domain) would never see it.
+  {
+    const root = newRoot('[]\n');
+    const r = await publishSuppression(pdb as Parameters<typeof publishSuppression>[0], { apply: true, root });
+    assert(r.outcome === 'PUBLISHED' && r.after?.status === 'IN_SYNC', 'a lead_id-only and a phone-only suppression publish and verify IN_SYNC', r.outcome);
+    const art = JSON.parse(readFileSync(join(root, SUPPRESSION_ARTIFACT), 'utf-8')) as SuppressionEntry[];
+    const dispatcherSees = (tn: string, to: string) => art.some(e => e.target_number === tn || (e.email ?? '').toLowerCase() === to || (e.domain ?? '') === to.split('@')[1]);
+    assert(!dispatcherSees('902', 'dm@s902.invalid') && !dispatcherSees('903', 'dm@s903.invalid'), 'and cron-dispatch alone would NOT block either — which is why the preflight exists');
+    assert(!art.some(e => e.target_number === '907'), 'the revoked entry was not published');
+  }
+
+  const clean = await pre([q('901')]);
+  assert(clean.ok && clean.queued === 1, 'a clean queue passes the preflight', clean.reason);
+  assert((await pre(undefined)).ok, 'no queue file → nothing to send → passes');
+  assert((await pre([])).ok, 'an empty queue passes');
+
+  const cases: [string, unknown, string][] = [
+    ['suppressed by lead_id only', [q('902')], 'SUPPRESSED:902'],
+    ['suppressed by phone only', [q('903')], 'SUPPRESSED:903'],
+    ['lead do_not_contact (no suppression row)', [q('904')], 'SUPPRESSED:904'],
+    ['lead email_outreach_status OPT_OUT', [q('905')], 'SUPPRESSED:905'],
+    ['suppressed domain', [q('906')], 'SUPPRESSED:906'],
+    ['recipient on a suppressed domain, under another target', [q('901', 'dm@s906.invalid')], 'SUPPRESSED:901'],
+    ['duplicate queue entry', [q('901'), q('901')], 'DUPLICATE_ENTRY:901'],
+    ['target unknown to Postgres', [q('908')], 'UNKNOWN_TARGET:908'],
+  ];
+  for (const [name, queue, want] of cases) {
+    const r = await pre(queue);
+    assert(!r.ok && kinds(r).includes(want), `refused: ${name}`, kinds(r));
+  }
+  const noRow = await pre([q('901')], tracker([['902', 'SCHEDULED']]));
+  assert(!noRow.ok && kinds(noRow).includes('NOT_IN_LEDGER:901'), 'refused: queued target has no ledger row, so a send could not be recorded', kinds(noRow));
+  const plain = await pre([q('901')], tracker([['901', 'SCHEDULED']]).replace('**SCHEDULED**', 'SCHEDULED'));
+  assert(!plain.ok && kinds(plain).includes('LEDGER_NOT_SENDABLE:901'), 'refused: ledger row the dispatcher could not mark as **SENT**', kinds(plain));
+  const sent = await pre([q('901')], tracker([['901', 'SENT']]));
+  assert(!sent.ok && kinds(sent).includes('ALREADY_SENT:901'), 'refused: Titan ledger already says SENT', kinds(sent));
+  const revoked = await pre([q('907')]);
+  assert(revoked.ok, 'a revoked suppression no longer blocks', kinds(revoked));
+  assert(!(await pre('{not json')).ok, 'refused: malformed queue');
+  assert(!(await pre([q('901')], null)).ok, 'refused: ledger missing');
+  assert(!(await pre([q('901')], '# empty\n')).ok, 'refused: ledger has no rows');
+  const dead = { select: () => { throw new Error('connection terminated'); } };
+  const down = await pre([q('901')], allScheduled, dead as unknown as typeof pdb);
+  assert(!down.ok && /could not be read/.test(down.reason), 'refused: Postgres unavailable', down.reason);
+  assert(!evaluateDispatchPreflight({ queueRaw: null, trackerRaw: null, leads: null, activeSuppression: [] }).ok, 'refused even with no queue when Postgres is unavailable');
+  assert(!JSON.stringify((await pre([q('902')])).findings).includes('@'), 'findings carry target numbers, never recipient addresses');
+  await pf.close();
 }
 
 await close();

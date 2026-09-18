@@ -35,7 +35,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                 <>
                   {' — '}
                   {/^https?:\/\//.test(c.source) ? (
-                    <a href={c.source} rel="noreferrer noopener nofollow" target="_blank">
+                    <a href={/^https?:\/\//i.test(c.source ?? '') ? c.source : undefined} rel="noreferrer noopener nofollow" target="_blank">
                       {c.source}
                     </a>
                   ) : (
@@ -197,7 +197,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                     <td>{p.field}</td>
                     <td className="wrap small">
                       {p.sourceUrl ? (
-                        <a href={p.sourceUrl} rel="noreferrer noopener nofollow" target="_blank">
+                        <a href={/^https?:\/\//i.test(p.sourceUrl ?? '') ? p.sourceUrl : undefined} rel="noreferrer noopener nofollow" target="_blank">
                           {p.sourceUrl}
                         </a>
                       ) : (
@@ -363,7 +363,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           </dd>
           <dt>Website</dt>
           <dd>
-            <a href={lead.website_url} rel="noreferrer noopener nofollow" target="_blank">
+            <a href={/^https?:\/\//i.test(lead.website_url ?? '') ? lead.website_url : undefined} rel="noreferrer noopener nofollow" target="_blank">
               {lead.website_url}
             </a>
           </dd>

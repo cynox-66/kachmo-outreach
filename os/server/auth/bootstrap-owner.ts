@@ -43,8 +43,10 @@ export async function bootstrapOwner(db: Db, auth: Auth, input: { email: string;
   const user = await ctx.internalAdapter.createUser({ email, name, emailVerified: true }, { method: 'admin' });
   const hash = await ctx.password.hash(password);
   await ctx.internalAdapter.linkAccount({ providerId: 'credential', accountId: user.id, userId: user.id, password: hash });
-  await db.insert(schema.userRole).values({ userId: user.id, role: 'OWNER', grantedByUserId: null });
-  await recordAudit(db, { actor: { userId: null, label: 'BOOTSTRAP' }, action: 'user.bootstrap_owner', target: { type: 'user', id: user.id }, metadata: { role: 'OWNER' } });
+  await db.transaction(async tx => {
+    await tx.insert(schema.userRole).values({ userId: user.id, role: 'OWNER', grantedByUserId: null });
+    await recordAudit(tx, { actor: { userId: null, label: 'BOOTSTRAP' }, action: 'user.bootstrap_owner', target: { type: 'user', id: user.id }, metadata: { role: 'OWNER' } });
+  });
   return { userId: user.id };
 }
 

@@ -270,6 +270,65 @@ group('9. Nothing in the app can send, and no secret can leak');
   assert(!src.some(f => /recordAudit\([^)]*decision_maker_(email|phone)/s.test(read(f))), 'no audit call passes a contact field');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+group('10. Approving a candidate after cutover is all-or-nothing');
+{
+  const schema = await import('../server/db/schema/index');
+  const { reviewCandidate } = await import('../server/research/service');
+  const { eq } = await import('drizzle-orm');
+  const db = database.db;
+  const ev = (field: string, value: string) => ({
+    field, value, statedConfidence: 'HIGH', reportLocation: 'p1',
+    evidence: [{ field, claim: value, sourceUrl: 'https://source.example/about', sourceDomain: 'source.example', sourceType: 'official_website',
+      retrievedAt: '2026-09-16T00:00:00.000Z', retrievedContentSha256: 'abc', supportingExcerpt: 'x', level: 'SUPPORTED',
+      validator: 'HUMAN', validatedAt: '2026-09-16T00:00:00.000Z', contradictsEvidenceId: null, notes: null }],
+  });
+  const [report] = await db.insert(schema.researchReport).values({
+    sourceReportId: 'report-test-atomic', provider: 'manual', operatorLabel: 'Tester', originalFilename: 'r.md', byteSize: 1, format: 'markdown',
+    contentSha256: 'a'.repeat(64), rawContent: 'x', stage: 'AWAITING_REVIEW', extractionStatus: 'OK',
+  }).returning({ id: schema.researchReport.id });
+  const mkCandidate = async (n: string) => {
+    const claims = [ev('company_name', `Atomic ${n}`), ev('website_url', `https://atomic-${n}.invalid`), ev('location_country', 'United Kingdom'), ev('archetype_id', '1'), ev('decision_maker_name', 'A Person')];
+    const [row] = await db.insert(schema.researchCandidate).values({
+      candidateId: `c-${n}`, reportId: report.id, status: 'AWAITING_REVIEW', companyName: `Atomic ${n}`, websiteDomain: `atomic-${n}.invalid`,
+      archetypeId: '1', locationCountry: 'United Kingdom', claims,
+    }).returning({ id: schema.researchCandidate.id });
+    return row.id;
+  };
+  const post = { ...snapshot, phase: 'POST_CUTOVER' as const, source: 'POSTGRES' as const, leads: [], suppression: [] };
+  const audits = async () => (await db.select().from(schema.auditEvent)).map(r => r.action);
+
+  const first = await mkCandidate('1');
+  const ok = await reviewCandidate(owner, { candidateId: first, decision: 'ACCEPT', note: null }, post);
+  const [c1] = await db.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, first));
+  assert(!!ok.resolvedLeadId && c1.status === 'ACCEPTED' && c1.resolvedLeadId === ok.resolvedLeadId, 'an approval creates the lead and resolves the candidate together', ok);
+  assert((await db.select().from(schema.lead)).length === 1, 'exactly one lead exists');
+  const afterOk = await audits();
+  assert(afterOk.includes('research.candidate_accept') && afterOk.includes('research.candidate_imported'), 'both the decision and the import are audited', afterOk);
+
+  // The same stale snapshot hands the second approval the same target number: the lead insert fails. Before the
+  // fix this left the candidate ACCEPTED and audited with no lead; now nothing at all is recorded.
+  const second = await mkCandidate('2');
+  let threw: unknown = null;
+  try {
+    await reviewCandidate(owner, { candidateId: second, decision: 'ACCEPT', note: null }, post);
+  } catch (e) { threw = e; }
+  const [c2] = await db.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, second));
+  assert(threw !== null, 'a failed promotion surfaces as an error');
+  assert(c2.status === 'AWAITING_REVIEW' && c2.reviewedByLabel === null && c2.resolvedLeadId === null, 'the candidate is left exactly as it was — not ACCEPTED', c2.status);
+  assert((await audits()).length === afterOk.length, 'no audit event was recorded for the failed approval');
+  assert((await db.select().from(schema.lead)).length === 1, 'and no second lead exists');
+
+  // A retry against current state then succeeds, proving the failure left nothing behind to block it.
+  const retry = await reviewCandidate(owner, { candidateId: second, decision: 'ACCEPT', note: null }, { ...post, leads: (await db.select().from(schema.lead)).map(r => r.record) as typeof snapshot.leads });
+  assert(!!retry.resolvedLeadId, 'the same candidate can be approved once the conflict is gone');
+
+  // A decision already taken is not silently re-taken.
+  let again: unknown = null;
+  try { await reviewCandidate(owner, { candidateId: first, decision: 'REJECT', note: null }, post); } catch (e) { again = e; }
+  assert(again !== null, 'a resolved candidate cannot be re-reviewed');
+}
+
 await database.close();
 console.log(`\n${'='.repeat(60)}\nAPP SUMMARY: ${passed} passed | ${failures.length} failed`);
 if (failures.length) {

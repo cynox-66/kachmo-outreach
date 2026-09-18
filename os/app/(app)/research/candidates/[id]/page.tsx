@@ -84,7 +84,7 @@ export default async function CandidatePage({ params }: { params: Promise<{ id: 
                     {c.evidence.map((e, i) =>
                       e.sourceUrl ? (
                         <div key={i}>
-                          <a href={e.sourceUrl} rel="noreferrer noopener nofollow" target="_blank">{e.sourceUrl}</a>
+                          <a href={/^https?:\/\//i.test(e.sourceUrl ?? '') ? e.sourceUrl : undefined} rel="noreferrer noopener nofollow" target="_blank">{e.sourceUrl}</a>
                         </div>
                       ) : (
                         <div key={i} className="muted">{e.notes ?? 'described, not linked'}</div>

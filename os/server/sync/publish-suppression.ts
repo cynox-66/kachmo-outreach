@@ -38,6 +38,7 @@ import { suppressionEntryFromRow } from '../db/migration/transform';
 import { recordAudit } from '../audit/audit';
 import { safeTargetLabel } from '../db/migration/hosted-target';
 import { loadLocalEnv } from '../db/local-env';
+import { runDispatchPreflight } from './dispatch-preflight';
 import { REPO_ROOT, SUPPRESSION_ARTIFACT, readSuppressionArtifact, writeSuppressionArtifact, sha256, ArtifactConflictError } from './suppression-artifact-store';
 
 type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -271,7 +272,13 @@ if (process.argv[1] && /publish-suppression\.ts$/.test(process.argv[1])) {
       console.log(`   status:   ${v.status}`);
       console.log(`   missing:  ${v.missing.length} · unexplained extra: ${v.extraUnexplained.length}`);
       console.log(`   ${v.outreachAllowed ? '✅' : '⛔'} ${v.reason}`);
-      return v.outreachAllowed ? 0 : 1;
+      // Artifact equivalence alone does not mean the dispatcher will honour every suppression; see dispatch-preflight.
+      const p = await runDispatchPreflight(db, REPO_ROOT);
+      console.log(`\n🚦 Dispatch preflight — scheduled-queue.json against Postgres`);
+      console.log(`   queued:   ${p.queued}`);
+      for (const f of p.findings) console.log(`   ⛔ ${f.kind} — target ${f.target_number}`);
+      console.log(`   ${p.ok ? '✅' : '⛔'} ${p.reason}`);
+      return v.outreachAllowed && p.ok ? 0 : 1;
     }
     const r = await publishSuppression(db, { apply, actor: { userId: null, label: 'CLI' } });
     console.log(`   before:   ${r.before.status} (artifact ${r.artifactShaBefore.slice(0, 12)})`);

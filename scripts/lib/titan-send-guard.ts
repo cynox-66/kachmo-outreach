@@ -4,9 +4,11 @@
  * is sent or drafted, and so does a local repository known to be behind origin (the cron may have sent since).
  */
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { spawnSync } from 'child_process';
 import { join, dirname } from 'path';
 import { loadLeads, loadSuppression, paths } from './store.js';
 import { readScheduledQueue, commitsBehindUpstream } from './email-state.js';
+import { effectiveCutoverPhase } from './cutover.js';
 import { parseTrackerContent } from '../../core/email-ledger/tracker.js';
 import { applyLedgerSendUpdate } from '../../core/email-ledger/ledger-update.js';
 import type { SendGuardInput, OutboundEmailKind } from '../../core/email-ledger/send-guard.js';
@@ -16,6 +18,10 @@ export function loadSendGuardInput(): { input: SendGuardInput; warnings: string[
   const warnings: string[] = [];
 
   const suppression = loadSuppression(); // throws when missing, unreadable or malformed
+  // After cutover this file is a derived artifact and Postgres is canonical. Parsing it proves nothing about whether
+  // it is current, so a send requires the ADR-010 verification (artifact vs Postgres, plus the queue preflight) to
+  // pass first. There is no flag to skip it.
+  if (effectiveCutoverPhase() === 'POST_CUTOVER') requireVerifiedSuppression();
 
   if (!existsSync(p.tracker)) throw new Error(`Email ledger missing: ${p.tracker}. Refusing to send without it.`);
   const ledger = parseTrackerContent(readFileSync(p.tracker, 'utf-8'));
@@ -32,6 +38,17 @@ export function loadSendGuardInput(): { input: SendGuardInput; warnings: string[
     warnings.push('Could not tell whether this checkout is behind origin (no git upstream). Make sure OUTREACH_TRACKER.md is current before sending.');
   }
   return { input: { suppression, leads, ledger, scheduledQueue }, warnings };
+}
+
+/** Runs `npm --prefix os run suppression:verify` in this workspace; anything but a clean exit refuses the send. */
+function requireVerifiedSuppression(): void {
+  const r = spawnSync('npm', ['--prefix', 'os', 'run', '--silent', 'suppression:verify'], { cwd: process.cwd(), stdio: 'inherit' });
+  if (r.status !== 0) {
+    throw new Error(
+      'POST_CUTOVER: database/suppression.json could not be verified against Postgres (npm --prefix os run suppression:verify ' +
+        `${r.error ? `could not run: ${r.error.message}` : `exited ${r.status}`}). Refusing to send.`
+    );
+  }
 }
 
 /** Writes the ledger transition for one successful send (atomic replace). Returns the number of rows updated. */

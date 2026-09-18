@@ -4,18 +4,14 @@ on:
   # ==========================================================================
   # AUTOMATED DISPATCH IS PAUSED. THIS IS AN INTENTIONAL SAFETY PAUSE.
   #
-  # Postgres became canonical at cutover (database/CUTOVER_STATE.json). The
-  # hosted application records suppression in Postgres, but this workflow runs
-  # scripts/cron-dispatch.ts, which reads the committed database/suppression.json.
-  # The ADR-010 publisher that would copy Postgres suppression into that file
-  # HAS NO EXECUTOR YET. Suppression synchronisation does not exist today.
+  # Postgres is canonical for suppression (database/CUTOVER_STATE.json). This
+  # workflow publishes Postgres suppression into database/suppression.json,
+  # verifies it, and preflights scheduled-queue.json against Postgres before
+  # scripts/cron-dispatch.ts may run. Any failure before dispatch fails the job.
   #
-  # An opt-out can therefore sit in Postgres and never reach the artifact this
-  # dispatcher checks, so an automated run could email someone who asked not to
-  # be contacted. The schedule below is disabled until that publisher exists.
-  #
+  # Resuming automated outreach is a human decision, not an engineering step.
   # TO RESUME: set "paused": false in OUTREACH_PAUSE.json AND uncomment the
-  # three cron lines below. Do neither until suppression actually publishes.
+  # three cron lines below, in a reviewed commit on main.
   #
   # schedule:
   #   # Monday through Thursday (1-4):
@@ -38,14 +34,14 @@ on:
         required: false
         default: false
         type: boolean
-      acknowledge_stale_suppression:
-        description: 'Send anyway, accepting that Postgres suppression may not be in database/suppression.json'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
+
+# One dispatcher at a time. Two concurrent runs would read the same queue and ledger and could both send.
+concurrency:
+  group: outreach-dispatch
+  cancel-in-progress: false
 
 jobs:
   dispatch:
@@ -57,17 +53,22 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Outreach pause gate (POST_CUTOVER suppression)
+      - name: Outreach pause gate
         env:
           DRY_RUN: ${{ inputs.dry_run }}
-          ACK: ${{ inputs.acknowledge_stale_suppression }}
         run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Refusing: outreach dispatch runs only from main (got $GITHUB_REF)." >&2
+            exit 1
+          fi
           node -e '
           const fs = require("fs");
           const f = "OUTREACH_PAUSE.json";
-          if (!fs.existsSync(f)) { console.log("No " + f + "; automated dispatch is not paused."); process.exit(0); }
+          // Fails closed: a missing or unreadable pause file is treated as paused. Only an explicit
+          // "paused": false, committed to main by a human, lets a real dispatch through.
+          if (!fs.existsSync(f)) { console.error("Refusing: " + f + " is missing; treating dispatch as paused."); process.exit(1); }
           const p = JSON.parse(fs.readFileSync(f, "utf-8"));
-          if (p.paused !== true) { console.log(f + " records paused=false; dispatch may proceed."); process.exit(0); }
+          if (p.paused === false) { console.log(f + " records paused=false; dispatch may proceed."); process.exit(0); }
           console.log("=========================================================");
           console.log("AUTOMATED OUTREACH DISPATCH IS PAUSED.");
           console.log("This is an INTENTIONAL SAFETY PAUSE, not a failure.");
@@ -76,8 +77,7 @@ jobs:
           console.log("=========================================================");
           console.log(p.note);
           if (process.env.DRY_RUN === "true") { console.log("\nDry run requested: nothing can be sent. Continuing."); process.exit(0); }
-          if (process.env.ACK === "true") { console.log("\nOperator explicitly acknowledged the stale-suppression risk. Continuing."); process.exit(0); }
-          console.error("\nRefusing to dispatch: suppression recorded in Postgres may be absent from database/suppression.json.");
+          console.error("\nRefusing to dispatch while paused. There is no override input; resuming is a reviewed commit to " + f + ".");
           process.exit(1);
           '
 
@@ -88,16 +88,20 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm ci
+          npm ci --prefix os
+          npm --prefix os run build:core
 
       # ── The safety sequence. Every step before SEND fails the job rather than continuing. ──────────────
       #
-      #   publish suppression  ->  verify the artifact  ->  dispatch
+      #   publish suppression  ->  verify artifact + preflight queue  ->  confirm current main  ->  dispatch
       #
       # Postgres is canonical for suppression; the dispatcher below reads the committed
-      # database/suppression.json. These two steps are what make that file trustworthy at the moment of
+      # database/suppression.json. These steps are what make that file trustworthy at the moment of
       # sending. If Postgres is unreachable, if the artifact is stale, malformed, or holds an entry nobody
-      # can account for, verification exits non-zero and NOTHING IS SENT.
+      # can account for, or if any queued email is blocked in Postgres (suppression by any key, lead status,
+      # ledger, duplicate), verification exits non-zero and NOTHING IS SENT.
       - name: Publish suppression from Postgres
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -110,30 +114,56 @@ jobs:
           KACHMO_NO_LOCAL_ENV: '1'
         run: npm --prefix os run suppression:verify
 
+      # The verification above is only valid for the checkout it ran on. Refuse if main has moved since checkout
+      # (the ledger or queue here would be stale) or if anything other than the publisher touched the workspace.
+      - name: Confirm the verified workspace is current main
+        run: |
+          git fetch --quiet origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "Refusing: origin/main moved after checkout; the verified ledger and queue may be stale. Re-run." >&2
+            exit 1
+          fi
+          STATUS="$(git status --porcelain --untracked-files=all)"
+          UNEXPECTED="$(printf '%s\n' "$STATUS" | awk 'NF && $0 != " M database/suppression.json"')"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "Refusing: unexpected workspace changes before dispatch:" >&2
+            echo "$UNEXPECTED" >&2
+            exit 1
+          fi
+
       - name: Run Timezone Outreach Dispatcher
+        id: dispatch
         env:
+          FORCE: ${{ inputs.force }}
+          DRY_RUN: ${{ inputs.dry_run }}
           TITAN_SMTP_HOST: ${{ secrets.TITAN_SMTP_HOST || 'smtpout.secureserver.net' }}
           TITAN_SMTP_PORT: ${{ secrets.TITAN_SMTP_PORT || '587' }}
           TITAN_EMAIL: ${{ secrets.TITAN_EMAIL || 'studios@kachmo.in' }}
           TITAN_PASSWORD: ${{ secrets.TITAN_PASSWORD }}
         run: |
           ARGS=""
-          if [ "${{ inputs.force }}" = "true" ]; then
+          if [ "$FORCE" = "true" ]; then
             ARGS="$ARGS --force"
           fi
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
           npx tsx scripts/cron-dispatch.ts $ARGS
 
+      # Runs whenever the dispatcher ran, even if it failed partway: every successful send has already been written
+      # to OUTREACH_TRACKER.md, and losing that write is what would let the next run send the same email again.
       - name: Commit and push updated queue and tracker
+        if: ${{ always() && (steps.dispatch.outcome == 'success' || steps.dispatch.outcome == 'failure') }}
         run: |
           git config --global user.name "Kachmo Outreach Bot"
           git config --global user.email "studios@kachmo.in"
           git add scheduled-queue.json OUTREACH_TRACKER.md database/suppression.json
           if ! git diff --staged --quiet; then
             git commit -m "Auto-dispatch: updated outreach queue & tracker [skip ci]"
-            git push
+            if ! git pull --rebase --quiet origin main || ! git push origin HEAD:main; then
+              echo "::error::The send ledger could NOT be pushed. OUTREACH_TRACKER.md on main does not record this run's sends. Reconcile it by hand before any further dispatch." >&2
+              exit 1
+            fi
           else
             echo "No changes to commit."
           fi

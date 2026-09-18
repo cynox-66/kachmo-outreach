@@ -1,6 +1,6 @@
 import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema/index';
 import { getServer } from '../auth/instance';
 import { recordAudit } from '../audit/audit';
@@ -93,28 +93,32 @@ export async function createBrief(actor: Actor, input: CreateBriefInput) {
   }
 
   const rendered = renderBrief(spec);
-  const [row] = await db
-    .insert(schema.researchBrief)
-    .values({
-      promptId: spec.promptId,
-      contractVersion: spec.contractVersion,
-      taxonomyVersion: spec.taxonomyVersion,
-      archetypeId: spec.archetypeId,
-      vertical: spec.vertical,
-      geographies: spec.geographies,
-      targetCount: spec.targetCount,
-      spec,
-      renderedBrief: rendered,
-      createdByUserId: actor.userId,
-      createdByLabel: actor.name,
-    })
-    .returning();
+  // The brief and its audit event commit together.
+  const row = await db.transaction(async tx => {
+    const [row] = await tx
+      .insert(schema.researchBrief)
+      .values({
+        promptId: spec.promptId,
+        contractVersion: spec.contractVersion,
+        taxonomyVersion: spec.taxonomyVersion,
+        archetypeId: spec.archetypeId,
+        vertical: spec.vertical,
+        geographies: spec.geographies,
+        targetCount: spec.targetCount,
+        spec,
+        renderedBrief: rendered,
+        createdByUserId: actor.userId,
+        createdByLabel: actor.name,
+      })
+      .returning();
 
-  await recordAudit(db, {
-    actor: { userId: actor.userId, label: actor.name },
-    action: 'research.brief_created',
-    target: { type: 'research_brief', id: row.id },
-    metadata: { promptId: spec.promptId, archetypeId: spec.archetypeId, geographies: spec.geographies, targetCount: spec.targetCount },
+    await recordAudit(tx, {
+      actor: { userId: actor.userId, label: actor.name },
+      action: 'research.brief_created',
+      target: { type: 'research_brief', id: row.id },
+      metadata: { promptId: spec.promptId, archetypeId: spec.archetypeId, geographies: spec.geographies, targetCount: spec.targetCount },
+    });
+    return row;
   });
   return { brief: row, spec, rendered, warnings: problems };
 }
@@ -195,7 +199,7 @@ export async function uploadReport(actor: Actor, input: UploadInput, snapshot?: 
   const stage = assessed.length ? 'AWAITING_REVIEW' : 'REJECTED';
   const extractionStatus = extraction.clean ? 'OK' : assessed.length ? 'PARTIAL' : 'FAILED';
 
-  const reportId = await db.transaction(async tx => {
+  const ingest = await db.transaction(async tx => {
     const [report] = await tx
       .insert(schema.researchReport)
       .values({
@@ -230,28 +234,26 @@ export async function uploadReport(actor: Actor, input: UploadInput, snapshot?: 
         }))
       );
     }
-    return report.id;
+    const byStatus: Record<string, number> = {};
+    for (const { assessment } of assessed) byStatus[assessment.status] = (byStatus[assessment.status] ?? 0) + 1;
+    // The report, its candidates and the audit event commit together.
+    await recordAudit(tx, {
+      actor: { userId: actor.userId, label: actor.name },
+      action: 'research.report_uploaded',
+      target: { type: 'research_report', id: report.id },
+      metadata: {
+        sourceReportId,
+        format: input.format,
+        byteSize,
+        contentSha256,
+        candidates: assessed.length,
+        errors: problems.filter(p => p.severity === 'ERROR').length,
+        byStatus,
+      },
+    });
+    return { id: report.id, byStatus };
   });
-
-  const byStatus: Record<string, number> = {};
-  for (const { assessment } of assessed) byStatus[assessment.status] = (byStatus[assessment.status] ?? 0) + 1;
-
-  await recordAudit(db, {
-    actor: { userId: actor.userId, label: actor.name },
-    action: 'research.report_uploaded',
-    target: { type: 'research_report', id: reportId },
-    metadata: {
-      sourceReportId,
-      format: input.format,
-      byteSize,
-      contentSha256,
-      candidates: assessed.length,
-      errors: problems.filter(p => p.severity === 'ERROR').length,
-      byStatus,
-    },
-  });
-
-  return { reportId, sourceReportId, candidates: assessed.length, accepted: 0, problems, byStatus };
+  return { reportId: ingest.id, sourceReportId, candidates: assessed.length, accepted: 0, problems, byStatus: ingest.byStatus };
 }
 
 export async function listReports(limit = 50) {
@@ -381,52 +383,86 @@ export async function reviewCandidate(actor: Actor, input: ReviewInput, snapshot
   const status = STATUS_FOR_DECISION[input.decision];
   const now = new Date();
 
-  await db
-    .update(schema.researchCandidate)
-    .set({ status, reviewedByUserId: actor.userId, reviewedByLabel: actor.name, reviewedAt: now, reviewNote: input.note })
-    .where(eq(schema.researchCandidate.id, input.candidateId));
+  // After cutover an ACCEPT creates the canonical lead. The lead is built BEFORE anything is written, and the
+  // decision, the lead, the candidate's resolution and both audit events commit in ONE transaction: a candidate
+  // that cannot be promoted is refused with nothing recorded, never left ACCEPTED-and-audited with no lead.
+  const snap = input.decision === 'ACCEPT' ? snapshot ?? (await loadCanonical()) : null;
+  const lead =
+    snap?.source === 'POSTGRES'
+      ? leadFromCandidate({
+          candidate,
+          targetNumber: nextTargetNumber(snap.leads.map(l => l.target_number)),
+          leadId: randomUUID(),
+          approvedBy: actor.name,
+          now: now.toISOString(),
+        })
+      : null;
 
-  await recordAudit(db, {
-    actor: { userId: actor.userId, label: actor.name },
-    action: `research.candidate_${input.decision.toLowerCase()}`,
-    target: { type: 'research_candidate', id: input.candidateId },
-    metadata: {
-      decision: input.decision,
-      status,
-      company: row.companyName,
-      assessmentStatus: assessment.status,
-      duplicateMatches: assessment.duplicateMatches.length,
-      mergeIntoLeadId: input.mergeIntoLeadId ?? null,
-    },
+  await db.transaction(async tx => {
+    if (lead) await tx.insert(schema.lead).values(leadRow(lead));
+    // Conditional on the state that was reviewed: a concurrent review or import turns this into a refusal rather
+    // than a second decision layered over the first.
+    const updated = await tx
+      .update(schema.researchCandidate)
+      .set({ status, reviewedByUserId: actor.userId, reviewedByLabel: actor.name, reviewedAt: now, reviewNote: input.note, ...(lead ? { resolvedLeadId: lead.lead_id } : {}) })
+      .where(and(eq(schema.researchCandidate.id, input.candidateId), eq(schema.researchCandidate.status, row.status), isNull(schema.researchCandidate.resolvedLeadId)))
+      .returning({ id: schema.researchCandidate.id });
+    if (!updated.length) throw new ResearchError('That candidate changed while you were reviewing it. Reload and review it again.');
+
+    await recordAudit(tx, {
+      actor: { userId: actor.userId, label: actor.name },
+      action: `research.candidate_${input.decision.toLowerCase()}`,
+      target: { type: 'research_candidate', id: input.candidateId },
+      metadata: {
+        decision: input.decision,
+        status,
+        company: row.companyName,
+        assessmentStatus: assessment.status,
+        duplicateMatches: assessment.duplicateMatches.length,
+        mergeIntoLeadId: input.mergeIntoLeadId ?? null,
+      },
+    });
+    if (lead) {
+      await recordAudit(tx, {
+        actor: { userId: actor.userId, label: actor.name },
+        action: 'research.candidate_imported',
+        target: { type: 'lead', id: lead.lead_id },
+        metadata: {
+          candidateId: input.candidateId,
+          targetNumber: lead.target_number,
+          company: lead.company_name,
+          researchState: lead.research_state,
+          emailStatus: lead.email_status,
+          phoneStatus: lead.phone_status,
+          approvedBy: actor.name,
+        },
+      });
+    }
   });
 
   if (input.decision !== 'ACCEPT') {
     return { status, resolvedLeadId: null, pendingExport: false, message: `Recorded as ${status}.` };
   }
+  if (lead) return { status, resolvedLeadId: lead.lead_id, pendingExport: false, message: 'Approved and imported as a canonical lead.' };
 
   // An approval in PRE_CUTOVER is real and recorded, but the canonical store is the JSON file the CLI owns.
   // Writing the lead here would create a second writer, which ADR-009 forbids.
-  const snap = snapshot ?? (await loadCanonical());
-  if (snap.source !== 'POSTGRES') {
-    return {
-      status,
-      resolvedLeadId: null,
-      pendingExport: true,
-      message:
-        'Approved and recorded. The canonical lead store is still the committed JSON file, which only the CLI writes, ' +
-        'so this candidate is queued for export rather than inserted. Export it from the approved queue and add it with the CLI.',
-    };
-  }
-
-  const leadId = await importApprovedCandidate(actor, input.candidateId, snap);
-  return { status, resolvedLeadId: leadId, pendingExport: false, message: 'Approved and imported as a canonical lead.' };
+  return {
+    status,
+    resolvedLeadId: null,
+    pendingExport: true,
+    message:
+      'Approved and recorded. The canonical lead store is still the committed JSON file, which only the CLI writes, ' +
+      'so this candidate is queued for export rather than inserted. Export it from the approved queue and add it with the CLI.',
+  };
 }
 
 /**
- * Creates the canonical lead from an approved candidate. POST_CUTOVER only.
+ * Creates the canonical lead from a candidate that is ALREADY accepted (for example, approved before cutover and
+ * held for export). POST_CUTOVER only. A fresh ACCEPT imports inside reviewCandidate's own transaction instead.
  *
- * Suppression is checked one final time inside the transaction: the gap between approval and insert is small, but
- * it is not zero, and contacting someone who opted out during it would be indefensible.
+ * The approval refusal is re-run against a fresh assessment first, so a candidate that became suppressed while it
+ * waited is refused rather than imported.
  */
 export async function importApprovedCandidate(actor: Actor, candidateId: string, snapshot: CanonicalSnapshot): Promise<string> {
   const { db } = getServer();
@@ -455,10 +491,12 @@ export async function importApprovedCandidate(actor: Actor, candidateId: string,
   // candidate marked resolved would be re-importable, and a resolved candidate without its lead would be lost.
   await db.transaction(async tx => {
     await tx.insert(schema.lead).values(leadRow(lead));
-    await tx
+    const resolved = await tx
       .update(schema.researchCandidate)
       .set({ resolvedLeadId: lead.lead_id })
-      .where(eq(schema.researchCandidate.id, candidateId));
+      .where(and(eq(schema.researchCandidate.id, candidateId), isNull(schema.researchCandidate.resolvedLeadId)))
+      .returning({ id: schema.researchCandidate.id });
+    if (!resolved.length) throw new ResearchError('That candidate has already been imported.');
     await recordAudit(tx, {
       actor: { userId: actor.userId, label: actor.name },
       action: 'research.candidate_imported',

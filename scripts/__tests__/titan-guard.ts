@@ -10,6 +10,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
+import { loadSendGuardInput } from '../lib/titan-send-guard.js';
 import type { KachmoLead, SuppressionEntry } from '../lib/schema.js';
 import { evaluateSendGuard, outboundEmailKind } from '../../core/email-ledger/send-guard.js';
 import { applyLedgerSendUpdate } from '../../core/email-ledger/ledger-update.js';
@@ -294,7 +295,7 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   assert(/git add .*database\/suppression\.json/.test(workflow), 'the published artifact is committed, since the dispatcher reads the committed file');
 
   // Execute the gate exactly as the workflow would. A scheduled run supplies no inputs, so both are empty.
-  const gateScript = workflow.split("run: |\n          node -e '")[1]?.split("\n          '")[0];
+  const gateScript = workflow.split("\n          node -e '")[1]?.split("\n          '")[0];
   assert(!!gateScript, 'the gate script can be extracted from the workflow');
   const runGate = (env: Record<string, string>) =>
     spawnSync('node', ['-e', gateScript!], { cwd: REPO, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '', ACK: '', ...env } });
@@ -306,8 +307,27 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   assert(/Blocked until/.test(scheduled.stdout), 'the refusal names what would unblock it');
 
   assert(runGate({ DRY_RUN: 'true' }).status === 0, 'a dry run is still allowed (it cannot send)');
-  assert(runGate({ ACK: 'true' }).status === 0, 'an explicit operator acknowledgement is allowed');
-  assert(/acknowledge_stale_suppression/.test(workflow), 'the acknowledgement is an explicit, named workflow input');
+  assert(runGate({ ACK: 'true' }).status === 1, 'no acknowledgement input can bypass the pause');
+  assert(!/acknowledge_stale_suppression|process\.env\.ACK/.test(workflow), 'the workflow has no override input for the pause');
+  const bare = mkdtempSync(join(tmpdir(), 'kachmo-gate-'));
+  tempDirs.push(bare);
+  const noMarker = spawnSync('node', ['-e', gateScript!], { cwd: bare, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '' } });
+  assert(noMarker.status === 1, 'a missing OUTREACH_PAUSE.json is treated as paused (fails closed)', noMarker.status);
+  writeFileSync(join(bare, 'OUTREACH_PAUSE.json'), '{"paused":"false"}');
+  assert(spawnSync('node', ['-e', gateScript!], { cwd: bare, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '' } }).status === 1, 'only a boolean paused:false unpauses');
+  assert(/GITHUB_REF" != "refs\/heads\/main"/.test(workflow), 'dispatch runs only from main');
+
+  // Nothing may turn a failed safety step into a send.
+  assert(!/continue-on-error/.test(workflow), 'no step is continue-on-error');
+  assert(!/\|\|\s*true/.test(workflow), 'no command failure is swallowed with || true');
+  assert(/concurrency:\s*\n\s*group: outreach-dispatch\s*\n\s*cancel-in-progress: false/.test(workflow), 'only one dispatcher can run at a time');
+  assert(/npm ci --prefix os/.test(workflow) && /run build:core/.test(workflow), 'the publisher and verifier have their dependencies and the built core');
+  assert(workflow.indexOf('run build:core') < publishAt, 'core is built before the publisher runs');
+  const freshAt = workflow.indexOf('Confirm the verified workspace is current main');
+  assert(freshAt > verifyAt && freshAt < dispatchAt, 'the workspace is confirmed to be current main between verification and dispatch');
+  assert(/git rev-parse origin\/main/.test(workflow) && /git status --porcelain/.test(workflow), 'the freshness step compares HEAD to origin/main and checks for stray changes');
+  assert(/steps\.dispatch\.outcome == 'failure'/.test(workflow), 'the ledger is committed even when the dispatcher fails partway');
+  assert(!/\$\{\{\s*inputs\.[a-z_]+\s*\}\}/.test(workflow.split('Run Timezone Outreach Dispatcher')[1].split('run: |')[1] ?? ''), 'workflow inputs reach the shell through env, not ${{ }} interpolation');
 
   // Nothing about the pause may touch Titan send state, the ledger, or the queue.
   const queue = JSON.parse(readFileSync(join(REPO, 'scheduled-queue.json'), 'utf-8')) as unknown[];
@@ -320,6 +340,30 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   assert(!/OUTREACH_PAUSE/.test(dispatcher), 'the pause did not modify the dispatcher itself');
   assert(!/OUTREACH_PAUSE/.test(readFileSync(join(REPO, 'scripts/send-titan-smtp.ts'), 'utf-8')), 'the pause did not modify send:titan');
   assert(/refusing to send/i.test(dispatcher), "the dispatcher's own fail-closed suppression check is still in place");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('Manual send:titan after cutover requires the artifact to verify against Postgres');
+{
+  const dir = mkdtempSync(join(tmpdir(), 'kachmo-postcutover-send-'));
+  tempDirs.push(dir);
+  mkdirSync(join(dir, 'database'), { recursive: true });
+  writeFileSync(join(dir, 'database/suppression.json'), '[]\n');
+  writeFileSync(join(dir, 'database/CUTOVER_STATE.json'), JSON.stringify({ phase: 'POST_CUTOVER', declaredAt: '2026-09-17T00:00:00.000Z', migrationCommit: null, note: 'test' }));
+  const prev = process.cwd();
+  process.chdir(dir);
+  let err: unknown = null;
+  try {
+    loadSendGuardInput();
+  } catch (e) {
+    err = e;
+  } finally {
+    process.chdir(prev);
+  }
+  assert(err instanceof Error && /POST_CUTOVER/.test(err.message) && /could not be verified against Postgres/.test(err.message),
+    'a well-formed local artifact is NOT enough after cutover: without a passing verification nothing is sent', err instanceof Error ? err.message : err);
+  const guard = readFileSync(join(REPO, 'scripts/lib/titan-send-guard.ts'), 'utf-8');
+  assert(/effectiveCutoverPhase\(\) === 'POST_CUTOVER'\) requireVerifiedSuppression\(\)/.test(guard), 'the check is unconditional after cutover (no flag skips it)');
 }
 
 for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
