@@ -82,7 +82,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       <h2>Next best action</h2>
       <div className="panel">
         <p style={{ margin: 0 }}>
-          <strong>{lead.next_action ?? 'None recorded.'}</strong>
+          <strong>{d.row.nextAction ?? 'None recorded.'}</strong>
           {lead.next_action_date ? <span className="muted"> — due {lead.next_action_date}</span> : null}
         </p>
         <p className="small muted" style={{ margin: '6px 0 0' }}>

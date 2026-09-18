@@ -19,6 +19,11 @@ const nextConfig = {
   experimental: { externalDir: true },
   // node-postgres must stay a real Node dependency, not be bundled.
   serverExternalPackages: ['pg'],
+  // Titan's ledger and production queue are read from disk in every phase (server/repo/canonical.ts), through a path
+  // the file tracer cannot follow. Without this a serverless deployment ships neither, and every email status
+  // silently reads as "unknown". The JSON lead store is deliberately NOT included: a deployment missing
+  // KACHMO_CUTOVER_PHASE=POST_CUTOVER then fails loudly instead of rendering the frozen pre-cutover snapshot.
+  outputFileTracingIncludes: { '/**': ['../OUTREACH_TRACKER.md', '../scheduled-queue.json'] },
   async headers() {
     return [
       {

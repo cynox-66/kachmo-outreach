@@ -16,9 +16,9 @@ export default function proxy(request: NextRequest) {
     const url = new URL('/login', request.url);
     return NextResponse.redirect(url);
   }
-  if (pathname === '/login' && hasSessionCookie) {
-    return NextResponse.redirect(new URL('/', request.url));
-  }
+  // No "/login with a cookie → /" redirect here: a cookie can outlive its session (revoked, deactivated account, rotated
+  // secret), and the layout would send it straight back to /login — an endless redirect loop. The login page itself
+  // redirects only when the session actually validates.
   return NextResponse.next();
 }
 

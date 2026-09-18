@@ -6,6 +6,7 @@ import { buildResearchQueue } from '@kachmo/core/research/tasks.js';
 import { buildInventoryReport, researchNeeds } from '@kachmo/core/research/inventory.js';
 import { outreachBlock } from '@kachmo/core/suppression/match.js';
 import { loadCanonical, ledgerStatusOf, type CanonicalSnapshot } from '../repo/canonical';
+import { presentedNextAction } from './ledger-view';
 import { phaseBanner } from '../repo/phase';
 
 /**
@@ -155,7 +156,7 @@ export async function getDashboard(snapshot?: CanonicalSnapshot): Promise<Dashbo
     .map(l => ({
       targetNumber: l.target_number,
       company: l.company_name,
-      action: l.next_action!,
+      action: presentedNextAction(l.next_action, ledger(l.target_number))!,
       due: l.next_action_date,
       owner: l.owner,
       priority: l.lead_priority ?? 'UNSCORED',

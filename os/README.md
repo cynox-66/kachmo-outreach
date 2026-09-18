@@ -106,6 +106,7 @@ See `.env.example`. All are server-only; none may be prefixed `NEXT_PUBLIC_`.
 | `KACHMO_MIGRATE_CONFIRM_HOST` | `db:migrate` | Must equal the host in `DATABASE_URL`. |
 | `BETTER_AUTH_SECRET` | auth (1.3) | ≥ 32 random bytes. |
 | `BETTER_AUTH_URL` | auth (1.3) | Deployment base URL. |
+| `KACHMO_CUTOVER_PHASE` | canonical read layer | **Production must set `POST_CUTOVER`.** Unset means PRE_CUTOVER, which reads the frozen JSON store (not deployed, so every page errors). |
 | `KACHMO_BOOTSTRAP_OWNER_EMAIL` / `_NAME` | owner bootstrap (1.3) | One-time; remove after use. |
 
 ## Authentication
@@ -219,8 +220,8 @@ Not deployed yet. Planned: Vercel **Pro** (Hobby forbids commercial use), projec
 Checklist for the first deployment:
 
 1. Create the Neon project and a development branch; keep production and development URLs separate.
-2. Set `DATABASE_URL`, `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` in Vercel (all server-side;
-   never `NEXT_PUBLIC_`).
+2. Set `DATABASE_URL`, `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` and
+   `KACHMO_CUTOVER_PHASE=POST_CUTOVER` in Vercel (all server-side; never `NEXT_PUBLIC_`).
 3. Apply the schema: `KACHMO_MIGRATE_CONFIRM_HOST=<neon host> npm run db:migrate`.
 4. Create the first owner: `npm run owner:bootstrap` (password typed at the prompt), then remove the bootstrap
    variables.

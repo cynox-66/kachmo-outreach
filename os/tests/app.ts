@@ -329,6 +329,60 @@ group('10. Approving a candidate after cutover is all-or-nothing');
   assert(again !== null, 'a resolved candidate cannot be re-reviewed');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+group('11. Email state follows Titan’s ledger, never a stale stored phrase');
+{
+  const { presentedNextAction, presentedStage, LEDGER_NEXT_ACTIONS } = await import('../server/services/ledger-view');
+  // The phrases must be the engine's own, or the mapping silently stops matching.
+  const engine = readFileSync(join(OS, '../core/leads/opportunity.ts'), 'utf-8');
+  assert(Object.values(LEDGER_NEXT_ACTIONS).every(p => engine.includes(`'${p}'`)), 'the mapped phrases are exactly the engine’s ledger-derived next actions');
+  assert(presentedNextAction(LEDGER_NEXT_ACTIONS.DRAFTED, 'SENT') === LEDGER_NEXT_ACTIONS.SENT, 'a DRAFTED phrase is not shown once the ledger says SENT');
+  assert(presentedNextAction(LEDGER_NEXT_ACTIONS.DRAFTED, 'DRAFTED') === LEDGER_NEXT_ACTIONS.DRAFTED, 'a genuinely drafted email still says so');
+  assert(presentedNextAction('Call the founder', 'SENT') === 'Call the founder', 'a human-recorded next action is never rewritten');
+  assert(presentedNextAction(LEDGER_NEXT_ACTIONS.DRAFTED, null) === LEDGER_NEXT_ACTIONS.DRAFTED, 'nothing is inferred when the ledger has no row');
+  assert(presentedStage('DRAFTED', 'SENT') === 'SENT' && presentedStage('DISQUALIFIED', 'SENT') === 'DISQUALIFIED', 'only a pre-send stage follows the ledger');
+
+  // The 18 webmail sends of 2026-09-12, reconciled DRAFTED → SENT in the ledger with lead records left untouched.
+  const RECONCILED = ['016', '017', '018', '020', '021', '022', '030', '033', '035', '049', '052', '061', '073', '074', '078', '079', '080', '083'];
+  const stale = /Dev to review and send/;
+  assert(RECONCILED.every(t => snapshot.tracker.get(t)?.status === 'SENT'), 'the ledger records all 18 reconciled targets as SENT');
+  const all = await listLeads({ pageSize: MAX_PAGE_SIZE }, snapshot);
+  const rows = all.rows.filter(r => RECONCILED.includes(r.targetNumber));
+  assert(rows.length === 18 && rows.every(r => !stale.test(r.nextAction ?? '') && r.pipelineStage !== 'DRAFTED' && r.emailLedgerStatus === 'SENT'), 'the lead list shows none of them as drafted or awaiting a send', rows.filter(r => stale.test(r.nextAction ?? '')).map(r => r.targetNumber));
+  const details = await Promise.all(RECONCILED.map(t => getLeadDetail(t, owner, snapshot)));
+  assert(details.every(d => d && !stale.test(d.row.nextAction ?? '')), 'no lead detail page tells Dev to send an email that was already sent');
+  const dash = await getDashboard(snapshot);
+  assert(!dash.nextActions.some(n => stale.test(n.action) && RECONCILED.includes(n.targetNumber)), 'the dashboard’s next actions do not ask for a duplicate send');
+  const pipe = await getPipeline(snapshot);
+  assert(!pipe.columns.flatMap(c => c.leads).some(l => RECONCILED.includes(l.targetNumber) && stale.test(l.nextAction ?? '')), 'the pipeline does not ask for a duplicate send');
+  const dome = all.rows.find(r => r.targetNumber === '042');
+  assert(dome?.pipelineStage === 'DISQUALIFIED' && dome.emailLedgerStatus === 'DISQUALIFIED', 'target 042 stays DISQUALIFIED in the lead list and the ledger', dome && { stage: dome.pipelineStage, ledger: dome.emailLedgerStatus });
+  const domeRow = readFileSync(join(OS, '../OUTREACH_TRACKER.md'), 'utf-8').split('\n').find(l => l.startsWith('| **042** |')) ?? '';
+  assert(/\*\*DISQUALIFIED\*\*/.test(domeRow) && /EXTERNAL MANUAL SEND/.test(domeRow), 'target 042 keeps its external manual-send annotation in the ledger');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('12. Sessions: a stale cookie cannot trap the browser in a redirect loop');
+{
+  const { NextRequest } = await import('next/server');
+  const { default: proxy } = await import('../proxy');
+  const req = (path: string, cookie?: string) => new NextRequest(new URL(path, 'https://os.kachmo.test'), cookie ? { headers: { cookie } } : undefined);
+  const staleAtLogin = proxy(req('/login', '__Secure-kachmo.session_token=revoked'));
+  assert(!staleAtLogin.headers.get('location'), 'the proxy does not bounce /login to / on cookie presence alone (the layout would bounce it back)', staleAtLogin.headers.get('location'));
+  const anonymous = proxy(req('/leads'));
+  assert(new URL(anonymous.headers.get('location') ?? 'x:/').pathname === '/login', 'a visitor with no session cookie is still sent to /login');
+  const login = read(join(APP, 'login/page.tsx'));
+  assert(/await getCurrentActor\(\)\)\s*redirect\('\/'\)/.test(login), 'the login page redirects to / only for a session validated server-side');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+group('13. A deployment ships the Titan ledger it reads');
+{
+  const config = read(join(OS, 'next.config.mjs'));
+  assert(/outputFileTracingIncludes:[^\n]*'\.\.\/OUTREACH_TRACKER\.md'/.test(config) && /'\.\.\/scheduled-queue\.json'/.test(config), 'the ledger and queue are included in every server function’s file trace');
+  assert(!/outputFileTracingIncludes:[^\n]*kachmo_leads/.test(config), 'the frozen JSON lead store is not shipped, so a missing POST_CUTOVER fails loudly');
+}
+
 await database.close();
 console.log(`\n${'='.repeat(60)}\nAPP SUMMARY: ${passed} passed | ${failures.length} failed`);
 if (failures.length) {

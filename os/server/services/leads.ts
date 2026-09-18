@@ -12,6 +12,7 @@ import { priorityLabel } from '@kachmo/core/util/text.js';
 import type { Actor } from '../authz/authorize';
 import { contactsFor, type LeadContacts } from './contacts';
 import { loadCanonical, ledgerStatusOf, type CanonicalSnapshot } from '../repo/canonical';
+import { presentedNextAction, presentedStage } from './ledger-view';
 
 /**
  * The lead read surface.
@@ -93,9 +94,9 @@ function toRow(lead: KachmoLead, snapshot: CanonicalSnapshot): LeadRow {
     researchCompleteness: lead.research_completeness_score,
     contactability: { callable, emailable, whatsapp, summary: blocked ? 'suppressed' : routes.length ? routes.join(' · ') : 'no usable route' },
     suppressed: blocked,
-    pipelineStage: pipelineStageOf(lead),
+    pipelineStage: presentedStage(pipelineStageOf(lead), ledger),
     emailLedgerStatus: ledger,
-    nextAction: lead.next_action,
+    nextAction: presentedNextAction(lead.next_action, ledger),
     nextActionDate: lead.next_action_date,
     owner: lead.owner,
   };

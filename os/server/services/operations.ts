@@ -11,6 +11,7 @@ import type { KachmoLead } from '@kachmo/core/leads/schema.js';
 import type { Actor } from '../authz/authorize';
 import { contactsFor } from './contacts';
 import { loadCanonical, ledgerStatusOf, type CanonicalSnapshot } from '../repo/canonical';
+import { presentedNextAction } from './ledger-view';
 
 /**
  * Read surfaces for the operational pages: calls, WhatsApp, email, pipeline, inventory and analytics.
@@ -305,7 +306,7 @@ export async function getPipeline(snapshot?: CanonicalSnapshot): Promise<Pipelin
       company: lead.company_name,
       owner: lead.owner,
       value: lead.deal_value,
-      nextAction: lead.next_action,
+      nextAction: presentedNextAction(lead.next_action, ledger(lead.target_number)),
       due: lead.next_action_date,
     });
   }
