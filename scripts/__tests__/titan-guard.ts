@@ -264,7 +264,7 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
     productionArtifactPublished: boolean;
   };
 
-  assert(marker.paused === true, 'OUTREACH_PAUSE.json records the pause');
+  assert(typeof marker.paused === 'boolean', 'OUTREACH_PAUSE.json records an explicit boolean pause state', marker.paused);
   assert(/NOT AN OPERATIONAL FAILURE/i.test(marker.note), 'the marker says this is an intentional pause, not a failure');
   assert(marker.mechanismReady === true, 'the marker records that the publish mechanism now exists');
   assert(marker.productionArtifactPublished === false, 'the marker records that production has NOT been published yet');
@@ -276,7 +276,22 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
     .split('\n')
     .filter(l => /^\s*-\s*cron:/.test(l) && !/^\s*#/.test(l));
   assert(!marker.paused || activeCron.length === 0, 'no active cron schedule while dispatch is paused', activeCron);
-  assert(/^\s*#\s*schedule:/m.test(workflow), 'the schedule block is present but commented out, so resuming is a one-line change');
+  if (marker.paused) {
+    assert(/^[ \t]*#[ \t]*schedule:/m.test(workflow), 'the schedule block is present but commented out, so resuming is a one-line change');
+  } else {
+    // Resumed: exactly the three documented windows, nothing added, nothing left half-commented.
+    const EXPECTED_CRON = ['0 8 * * 1-4', '30 13 * * 1-4', '30 16 * * 1-4'];
+    const cronExprs = activeCron.map(l => l.replace(/^\s*-\s*cron:\s*'(.*)'\s*$/, '$1'));
+    assert(JSON.stringify(cronExprs) === JSON.stringify(EXPECTED_CRON), 'unpaused: exactly the three documented cron schedules are active', cronExprs);
+    assert(workflow.split('\n').filter(l => /cron:/.test(l)).length === EXPECTED_CRON.length, 'unpaused: no other cron line exists, commented or not');
+    assert(/^  schedule:[ \t]*$/m.test(workflow) && !/^[ \t]*#[ \t]*schedule:/m.test(workflow), 'unpaused: the schedule trigger is active under on:');
+  }
+  const triggers = workflow.split('\njobs:')[0].split('\npermissions:')[0].split('\n').filter(l => /^  [a-z_]+:/.test(l)).map(l => l.trim());
+  assert(JSON.stringify(triggers) === JSON.stringify(marker.paused ? ['workflow_dispatch:'] : ['schedule:', 'workflow_dispatch:']), 'the only triggers are the schedule (when unpaused) and workflow_dispatch', triggers);
+  const inputsBlock = workflow.split('  workflow_dispatch:\n')[1]?.split('\npermissions:')[0] ?? '';
+  const inputNames = inputsBlock.split('\n').filter(l => /^      [a-z_]+:\s*$/.test(l)).map(l => l.trim());
+  assert(JSON.stringify(inputNames) === JSON.stringify(['force:', 'dry_run:']), 'workflow_dispatch inputs are unchanged: only force and dry_run', inputNames);
+  assert((inputsBlock.match(/default: false/g) ?? []).length === 2, 'both workflow_dispatch inputs default to false (a scheduled run is neither forced nor dry)');
   assert(/AUTOMATED DISPATCH IS PAUSED/.test(workflow), 'the workflow states the pause at the top of its triggers');
 
   // The gate must run BEFORE anything can dispatch, or it protects nothing.
@@ -297,8 +312,18 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   // Execute the gate exactly as the workflow would. A scheduled run supplies no inputs, so both are empty.
   const gateScript = workflow.split("\n          node -e '")[1]?.split("\n          '")[0];
   assert(!!gateScript, 'the gate script can be extracted from the workflow');
-  const runGate = (env: Record<string, string>) =>
-    spawnSync('node', ['-e', gateScript!], { cwd: REPO, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '', ACK: '', ...env } });
+  const runGateIn = (cwd: string, env: Record<string, string>) =>
+    spawnSync('node', ['-e', gateScript!], { cwd, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '', ACK: '', ...env } });
+  // The refusal behaviour is tested against a paused fixture (the real marker with paused:true) so it stays covered
+  // whatever state production is in. The real marker is tested separately below.
+  const markerFixture = (paused: boolean) => {
+    const d = mkdtempSync(join(tmpdir(), 'kachmo-gate-'));
+    tempDirs.push(d);
+    writeFileSync(join(d, 'OUTREACH_PAUSE.json'), JSON.stringify({ ...marker, paused }, null, 2));
+    return d;
+  };
+  const pausedDir = markerFixture(true);
+  const runGate = (env: Record<string, string>) => runGateIn(pausedDir, env);
 
   const scheduled = runGate({});
   assert(scheduled.status === 1, 'the gate REFUSES a run with no inputs (what a schedule trigger supplies)', scheduled.status);
@@ -316,6 +341,16 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   writeFileSync(join(bare, 'OUTREACH_PAUSE.json'), '{"paused":"false"}');
   assert(spawnSync('node', ['-e', gateScript!], { cwd: bare, encoding: 'utf-8', env: { ...process.env, DRY_RUN: '' } }).status === 1, 'only a boolean paused:false unpauses');
   assert(/GITHUB_REF" != "refs\/heads\/main"/.test(workflow), 'dispatch runs only from main');
+
+  // Unpaused: the marker lifts only the pause itself. It is the gate's single early pass, and every later safety step
+  // still runs unconditionally.
+  const unpaused = runGateIn(markerFixture(false), {});
+  assert(unpaused.status === 0 && /records paused=false; dispatch may proceed/.test(unpaused.stdout), 'an unpaused marker lets the gate pass a run with no inputs', unpaused.status);
+  const real = runGateIn(REPO, {});
+  assert(real.status === (marker.paused ? 1 : 0), `the real marker (paused=${marker.paused}) produces the matching gate outcome`, real.status);
+  const safetySteps = workflow.slice(gateAt, dispatchAt);
+  assert(!/^\s+if:/m.test(safetySteps), 'no step between the pause gate and the dispatcher is conditional, so none is skipped when unpaused');
+  assert(!/paused/i.test(workflow.slice(workflow.indexOf('Setup Node.js'))), 'no step after the gate reads the pause state, so unpausing cannot relax any of them');
 
   // Nothing may turn a failed safety step into a send.
   assert(!/continue-on-error/.test(workflow), 'no step is continue-on-error');

@@ -13,14 +13,14 @@ on:
   # TO RESUME: set "paused": false in OUTREACH_PAUSE.json AND uncomment the
   # three cron lines below, in a reviewed commit on main.
   #
-  # schedule:
-  #   # Monday through Thursday (1-4):
-  #   # 08:00 UTC -> 09:00 AM London (UK) / 10:00 AM Berlin (EU)
-  #   - cron: '0 8 * * 1-4'
-  #   # 13:30 UTC -> 09:30 AM New York (EST) / Toronto (EDT)
-  #   - cron: '30 13 * * 1-4'
-  #   # 16:30 UTC -> 09:30 AM San Francisco (PST) / Los Angeles
-  #   - cron: '30 16 * * 1-4'
+  schedule:
+    # Monday through Thursday (1-4):
+    # 08:00 UTC -> 09:00 AM London (UK) / 10:00 AM Berlin (EU)
+    - cron: '0 8 * * 1-4'
+    # 13:30 UTC -> 09:30 AM New York (EST) / Toronto (EDT)
+    - cron: '30 13 * * 1-4'
+    # 16:30 UTC -> 09:30 AM San Francisco (PST) / Los Angeles
+    - cron: '30 16 * * 1-4'
   # ==========================================================================
   workflow_dispatch:
     inputs:

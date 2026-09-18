@@ -1,5 +1,5 @@
 {
-  "paused": true,
+  "paused": false,
   "pausedAt": "2026-09-17T11:00:00.000Z",
   "updatedAt": "2026-09-18T10:17:23.000Z",
   "reason": "AWAITING_HUMAN_AUTHORIZATION_TO_RESUME",
