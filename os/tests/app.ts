@@ -275,7 +275,7 @@ group('10. Approving a candidate after cutover is all-or-nothing');
 {
   const schema = await import('../server/db/schema/index');
   const { reviewCandidate } = await import('../server/research/service');
-  const { eq } = await import('drizzle-orm');
+  const { eq, sql } = await import('drizzle-orm');
   const db = database.db;
   const ev = (field: string, value: string) => ({
     field, value, statedConfidence: 'HIGH', reportLocation: 'p1',
@@ -296,37 +296,72 @@ group('10. Approving a candidate after cutover is all-or-nothing');
     return row.id;
   };
   const post = { ...snapshot, phase: 'POST_CUTOVER' as const, source: 'POSTGRES' as const, leads: [], suppression: [] };
+  // A real post-cutover database carries the ACTIVE methodology the migration seeded; evaluations are attributed to it.
+  const { METHODOLOGY_V1_0 } = await import('../server/methodology/v1');
+  await db.insert(schema.methodologyVersion).values({ ...METHODOLOGY_V1_0, activatedAt: new Date() });
   const audits = async () => (await db.select().from(schema.auditEvent)).map(r => r.action);
+  // Phase B: a canonical import is an application write, so it needs POST_CUTOVER and the write switch (ADR-027).
+  const prevEnv = { phase: process.env.KACHMO_CUTOVER_PHASE, writes: process.env.KACHMO_APP_WRITES, url: process.env.DATABASE_URL };
+  process.env.KACHMO_CUTOVER_PHASE = 'POST_CUTOVER';
+  // In-memory Postgres; the declared target is loopback, which the write guard allows in development.
+  process.env.DATABASE_URL = 'postgres://localhost:5432/kachmo_test';
 
   const first = await mkCandidate('1');
+  let switchedOff: unknown = null;
+  try { await reviewCandidate(owner, { candidateId: first, decision: 'ACCEPT', note: null }, post); } catch (e) { switchedOff = e; }
+  assert(/KACHMO_APP_WRITES/.test(String(switchedOff)), 'with application writes switched off, an approval after cutover is refused, not half-recorded', String(switchedOff));
+  const [untouched] = await db.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, first));
+  assert(untouched.status === 'AWAITING_REVIEW' && untouched.reviewedByLabel === null, 'and the candidate is left exactly as it was');
+  process.env.KACHMO_APP_WRITES = 'on';
+
   const ok = await reviewCandidate(owner, { candidateId: first, decision: 'ACCEPT', note: null }, post);
   const [c1] = await db.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, first));
   assert(!!ok.resolvedLeadId && c1.status === 'ACCEPTED' && c1.resolvedLeadId === ok.resolvedLeadId, 'an approval creates the lead and resolves the candidate together', ok);
   assert((await db.select().from(schema.lead)).length === 1, 'exactly one lead exists');
   const afterOk = await audits();
   assert(afterOk.includes('research.candidate_accept') && afterOk.includes('research.candidate_imported'), 'both the decision and the import are audited', afterOk);
+  const [imported] = await db.select().from(schema.lead).where(eq(schema.lead.leadId, ok.resolvedLeadId!));
+  const evals = await db.select().from(schema.leadEvaluation).where(eq(schema.leadEvaluation.leadId, ok.resolvedLeadId!));
+  assert(evals.length === 1 && evals[0].researchState === imported.researchState, 'the new lead is evaluated by the engine in the same transaction (it enters the funnel scored, not stranded)', { evals: evals.length });
+  const evidence = await db.select().from(schema.leadEvidence).where(eq(schema.leadEvidence.leadId, ok.resolvedLeadId!));
+  assert(evidence.length === 5 && evidence.every(e => e.origin === 'EXTERNAL_RESEARCH' && e.candidateId === first), 'the candidate\'s claims arrive as claim-level evidence on the lead', evidence.length);
+  assert(evidence.every(e => e.validator === 'SYNTAX_CHECK' && e.supportingExcerpt === null && e.retrievalId === null), 'an asserted SUPPORTED level, retrieval and excerpt from the report are NOT believed — only the URL survives');
+  const discovered = await db.select().from(schema.analyticsEvent).where(eq(schema.analyticsEvent.leadId, ok.resolvedLeadId!));
+  assert(discovered.some(e => e.eventType === 'LEAD_DISCOVERED'), 'a LEAD_DISCOVERED event is appended');
 
-  // The same stale snapshot hands the second approval the same target number: the lead insert fails. Before the
-  // fix this left the candidate ACCEPTED and audited with no lead; now nothing at all is recorded.
+  // Before Phase B, the same stale snapshot handed the second approval the same target number and the insert
+  // failed. The target number is now allocated inside the locked transaction, so the stale snapshot cannot race.
   const second = await mkCandidate('2');
+  const two = await reviewCandidate(owner, { candidateId: second, decision: 'ACCEPT', note: null }, post);
+  const numbers = (await db.select().from(schema.lead)).map(r => r.targetNumber).sort();
+  assert(!!two.resolvedLeadId && numbers.length === 2 && numbers[0] !== numbers[1], 'a stale snapshot can no longer hand two approvals the same target number', numbers);
+
+  // All-or-nothing: a failure at the LAST step (evidence) rolls back the lead, the candidate, the events and the audits.
+  await db.execute(sql`create function test_fail_evidence() returns trigger language plpgsql as $$ begin if new.claim_value = 'Atomic 3' then raise exception 'injected failure'; end if; return new; end; $$`);
+  await db.execute(sql`create trigger test_fail_evidence before insert on lead_evidence for each row execute function test_fail_evidence()`);
+  const third = await mkCandidate('3');
+  const beforeFail = { audits: (await audits()).length, leads: (await db.select().from(schema.lead)).length, events: (await db.select().from(schema.analyticsEvent)).length };
   let threw: unknown = null;
   try {
-    await reviewCandidate(owner, { candidateId: second, decision: 'ACCEPT', note: null }, post);
+    await reviewCandidate(owner, { candidateId: third, decision: 'ACCEPT', note: null }, post);
   } catch (e) { threw = e; }
-  const [c2] = await db.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, second));
+  const [c3] = await db.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, third));
   assert(threw !== null, 'a failed promotion surfaces as an error');
-  assert(c2.status === 'AWAITING_REVIEW' && c2.reviewedByLabel === null && c2.resolvedLeadId === null, 'the candidate is left exactly as it was — not ACCEPTED', c2.status);
-  assert((await audits()).length === afterOk.length, 'no audit event was recorded for the failed approval');
-  assert((await db.select().from(schema.lead)).length === 1, 'and no second lead exists');
-
-  // A retry against current state then succeeds, proving the failure left nothing behind to block it.
-  const retry = await reviewCandidate(owner, { candidateId: second, decision: 'ACCEPT', note: null }, { ...post, leads: (await db.select().from(schema.lead)).map(r => r.record) as typeof snapshot.leads });
-  assert(!!retry.resolvedLeadId, 'the same candidate can be approved once the conflict is gone');
+  assert(c3.status === 'AWAITING_REVIEW' && c3.reviewedByLabel === null && c3.resolvedLeadId === null, 'the candidate is left exactly as it was — not ACCEPTED', c3.status);
+  assert((await audits()).length === beforeFail.audits, 'no audit event was recorded for the failed approval');
+  assert((await db.select().from(schema.lead)).length === beforeFail.leads, 'and no lead exists for it');
+  assert((await db.select().from(schema.analyticsEvent)).length === beforeFail.events, 'and no event was appended');
+  await db.execute(sql`drop trigger test_fail_evidence on lead_evidence`);
+  const retry = await reviewCandidate(owner, { candidateId: third, decision: 'ACCEPT', note: null }, post);
+  assert(!!retry.resolvedLeadId, 'the same candidate can be approved once the fault is gone');
 
   // A decision already taken is not silently re-taken.
   let again: unknown = null;
   try { await reviewCandidate(owner, { candidateId: first, decision: 'REJECT', note: null }, post); } catch (e) { again = e; }
   assert(again !== null, 'a resolved candidate cannot be re-reviewed');
+  if (prevEnv.phase === undefined) delete process.env.KACHMO_CUTOVER_PHASE; else process.env.KACHMO_CUTOVER_PHASE = prevEnv.phase;
+  if (prevEnv.writes === undefined) delete process.env.KACHMO_APP_WRITES; else process.env.KACHMO_APP_WRITES = prevEnv.writes;
+  if (prevEnv.url === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = prevEnv.url;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

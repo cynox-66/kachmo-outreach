@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, text, uuid, integer, boolean, jsonb, timestamp, index, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, uuid, integer, boolean, jsonb, timestamp, index, check, unique } from 'drizzle-orm/pg-core';
 import type { KachmoLead } from '@kachmo/core/leads/schema.js';
 import { methodologyVersion } from './methodology';
+import { researchCandidate } from './research';
 
 /**
  * Canonical lead store.
@@ -106,11 +107,92 @@ export const leadEvidence = pgTable(
     contradictsEvidenceId: uuid('contradicts_evidence_id'),
     recordedByUserId: text('recorded_by_user_id'),
     recordedAt: timestamp('recorded_at', { withTimezone: true }).defaultNow().notNull(),
+    // ── Phase B (ADR-023/024) ──
+    /** The successful retrieval this claim was checked against. Set by the fetcher; never by an extractor. */
+    retrievalId: uuid('retrieval_id').references(() => evidenceRetrieval.id, { onDelete: 'restrict' }),
+    /** A verbatim excerpt of the retrieval's stored text, chosen by the human who reviewed it. Never invented. */
+    supportingExcerpt: text('supporting_excerpt'),
+    /** Who or what established the facts on this row (core VALIDATORS). The LEVEL is derived by core, never stored. */
+    validator: text('validator').notNull().default('NONE'),
+    /** The research candidate this evidence arrived with (import or merge), when it did. */
+    candidateId: uuid('candidate_id').references(() => researchCandidate.id, { onDelete: 'restrict' }),
+    recordedByLabel: text('recorded_by_label'),
+    reviewedByLabel: text('reviewed_by_label'),
+    reviewNote: text('review_note'),
   },
   t => [
     index('lead_evidence_lead_field_idx').on(t.leadId, t.field),
     check('lead_evidence_origin_check', sql`${t.origin} in ('LEGACY_RECORD', 'HUMAN_RECORD', 'EXTERNAL_RESEARCH', 'IDE_AGENT', 'CALL')`),
     check('lead_evidence_review_status_check', sql`${t.reviewStatus} in ('UNREVIEWED', 'CHECKED', 'REJECTED')`),
     check('lead_evidence_review_consistency_check', sql`(${t.reviewStatus} = 'UNREVIEWED') = (${t.reviewedAt} is null)`),
+    check('lead_evidence_validator_check', sql`${t.validator} in ('NONE', 'SYNTAX_CHECK', 'FETCHER', 'LLM_EXTRACTION', 'HUMAN')`),
+    check('lead_evidence_excerpt_length_check', sql`${t.supportingExcerpt} is null or length(${t.supportingExcerpt}) <= 2000`),
+    // An excerpt cannot predate its source: nobody can quote a page that was never retrieved (ADR-011).
+    check('lead_evidence_excerpt_retrieval_check', sql`${t.supportingExcerpt} is null or ${t.retrievalId} is not null`),
+    // A CHECKED review always carries the excerpt that justified it.
+    check('lead_evidence_checked_excerpt_check', sql`${t.reviewStatus} <> 'CHECKED' or ${t.supportingExcerpt} is not null`),
   ]
+);
+
+/**
+ * PHASE B — one attempt to fetch a source URL (ADR-023). Append-only (database trigger).
+ *
+ * A retrieval records what the world returned and when; it proves a page EXISTED, never that it supports a claim.
+ * `text_content` is kept (bounded, normalised) so a human can review it and so an excerpt can be proven verbatim.
+ * It may contain a prospect's contact details, so it is shown only to actors allowed to see contact values.
+ */
+export const evidenceRetrieval = pgTable(
+  'evidence_retrieval',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: text('run_id').notNull(),
+    requestedUrl: text('requested_url').notNull(),
+    finalUrl: text('final_url'),
+    redirectChain: jsonb('redirect_chain').$type<string[]>().notNull().default([]),
+    httpStatus: integer('http_status'),
+    outcome: text('outcome').notNull(),
+    contentType: text('content_type'),
+    byteSize: integer('byte_size'),
+    contentSha256: text('content_sha256'),
+    textContent: text('text_content'),
+    error: text('error'),
+    userAgent: text('user_agent').notNull(),
+    fetchedByLabel: text('fetched_by_label').notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  t => [
+    index('evidence_retrieval_url_idx').on(t.requestedUrl),
+    index('evidence_retrieval_run_idx').on(t.runId),
+    check(
+      'evidence_retrieval_outcome_check',
+      sql`${t.outcome} in ('OK', 'DNS_FAILED', 'TIMEOUT', 'HTTP_4XX', 'HTTP_5XX', 'BLOCKED_PRIVATE_ADDRESS', 'TOO_LARGE', 'UNSUPPORTED_TYPE', 'ROBOTS_DISALLOWED', 'TLS_ERROR', 'INVALID_URL', 'TOO_MANY_REDIRECTS', 'NETWORK_ERROR')`
+    ),
+    check('evidence_retrieval_hash_check', sql`${t.contentSha256} is null or ${t.contentSha256} ~ '^[0-9a-f]{64}$'`),
+    // Only a successful fetch holds content, and a successful fetch always does.
+    check('evidence_retrieval_ok_content_check', sql`(${t.outcome} = 'OK') = (${t.contentSha256} is not null and ${t.textContent} is not null)`),
+    check('evidence_retrieval_text_size_check', sql`${t.textContent} is null or length(${t.textContent}) <= 262144`),
+  ]
+);
+
+/**
+ * PHASE B — the record a lead had at each superseded version (ADR-022). Append-only (database trigger).
+ *
+ * History for rollback and "what did this lead say before?", never a second source of truth: the canonical record
+ * is always `lead.record`. Holds contact values, so no service exposes it; only the revert tool reads it.
+ */
+export const leadRevision = pgTable(
+  'lead_revision',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    leadId: uuid('lead_id').notNull().references(() => lead.leadId, { onDelete: 'restrict' }),
+    version: integer('version').notNull(),
+    record: jsonb('record').$type<KachmoLead>().notNull(),
+    recordSha256: text('record_sha256').notNull(),
+    /** The audit action of the write that superseded this version. */
+    supersededBy: text('superseded_by').notNull(),
+    writtenByUserId: text('written_by_user_id'),
+    writtenByLabel: text('written_by_label').notNull(),
+    writtenAt: timestamp('written_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  t => [unique('lead_revision_lead_version_key').on(t.leadId, t.version), check('lead_revision_version_positive_check', sql`${t.version} >= 1`)]
 );

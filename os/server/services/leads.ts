@@ -243,6 +243,14 @@ const OUTCOME_MEANING: Record<string, string> = {
 
 export interface LeadDetail {
   lead: KachmoLead;
+  /** The stored version (POST_CUTOVER), carried by every operator form so a stale write is refused. */
+  version: number | null;
+  /**
+   * Where the STORED derived state disagrees with what the engine computes now from the stored inputs. Empty in a
+   * healthy database: every Phase B write re-evaluates in the same transaction. Non-empty means a re-evaluation run
+   * is due (or something wrote the record outside the applier) — shown, never silently papered over.
+   */
+  drift: string[];
   row: LeadRow;
   contacts: LeadContacts;
   gates: GateExplanation[];
@@ -295,8 +303,20 @@ export async function getLeadDetail(identifier: string, actor: Actor, snapshot?:
     };
   });
 
+  const drift: string[] = [];
+  for (const [gate, outcome] of gateEntries) {
+    const stored = (lead.qualification_gates as unknown as Record<string, string> | null)?.[gate];
+    if (stored !== outcome) drift.push(`${GATE_LABELS[gate] ?? gate}: stored ${stored ?? 'none'}, engine says ${outcome}`);
+  }
+  // OUTREACH_READY is QUALIFIED plus readiness, which the opportunity step derives — not a disagreement.
+  const storedState = lead.research_state === 'OUTREACH_READY' ? 'QUALIFIED' : lead.research_state;
+  if (storedState !== q.state) drift.push(`Research state: stored ${lead.research_state}, engine says ${q.state}`);
+  if (lead.research_completeness_score !== q.completenessScore) drift.push(`Research completeness: stored ${lead.research_completeness_score}%, engine says ${q.completenessScore}%`);
+
   return {
     lead,
+    version: snap.versions.get(lead.lead_id) ?? null,
+    drift,
     row: toRow(lead, snap),
     contacts: contactsFor(lead, actor),
     gates: gateEntries.map(([gate, outcome]) => ({

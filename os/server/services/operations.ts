@@ -26,7 +26,12 @@ const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/
 
 export interface CallQueueView {
   today: string;
+  /** Which store is canonical: operator actions are recorded in the app only when it is Postgres. */
+  source: 'GIT_JSON' | 'POSTGRES';
   cards: Array<{
+    leadId: string;
+    /** The stored version the card was rendered from (POST_CUTOVER), so a logged call cannot land on a changed lead. */
+    version: number | null;
     targetNumber: string;
     company: string;
     decisionMaker: string;
@@ -68,10 +73,13 @@ export async function getCallQueue(actor: Actor, snapshot?: CanonicalSnapshot): 
 
   return {
     today,
+    source: snap.source,
     cards: cards.map(c => {
       const lead = byTn.get(c.target_number)!;
       const contacts = contactsFor(lead, actor);
       return {
+        leadId: lead.lead_id,
+        version: snap.versions.get(lead.lead_id) ?? null,
         targetNumber: c.target_number,
         company: c.company_name,
         decisionMaker: c.decision_maker_name,
@@ -114,7 +122,10 @@ export function callCardFor(lead: KachmoLead) {
 // ── WhatsApp ─────────────────────────────────────────────────────────────────
 
 export interface WhatsAppQueueView {
+  source: 'GIT_JSON' | 'POSTGRES';
   items: Array<{
+    leadId: string;
+    version: number | null;
     targetNumber: string;
     company: string;
     decisionMaker: string;
@@ -138,9 +149,13 @@ export async function getWhatsAppQueue(actor: Actor, snapshot?: CanonicalSnapsho
   const { items, excluded } = selectWhatsAppQueue(snap.leads, snap.suppression, ledgerStatusOf(snap));
   const byTn = new Map(snap.leads.map(l => [l.target_number, l]));
   return {
+    source: snap.source,
     items: items.map(i => {
-      const contacts = contactsFor(byTn.get(i.target_number)!, actor);
+      const lead = byTn.get(i.target_number)!;
+      const contacts = contactsFor(lead, actor);
       return {
+        leadId: lead.lead_id,
+        version: snap.versions.get(lead.lead_id) ?? null,
         targetNumber: i.target_number,
         company: i.company_name,
         decisionMaker: i.decision_maker_name,

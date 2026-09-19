@@ -23,6 +23,14 @@ import { leadFromCandidate, nextTargetNumber } from '@kachmo/core/research/promo
 import { leadRow } from '../db/migration/transform';
 import { normalizeDomain } from '@kachmo/core/contact/provenance.js';
 import { loadCanonical, type CanonicalSnapshot } from '../repo/canonical';
+import { writeRefusal } from '../repo/phase';
+import { readTitanState, ledgerLookup } from '../repo/titan-ledger';
+import { findInvariantViolations } from '@kachmo/core/leads/invariants.js';
+import type { KachmoLead } from '@kachmo/core/leads/schema.js';
+import { lockCanonicalWrites, type Db } from '../leads/locks';
+import { readSuppressionInTx, appendEvents, insertEvaluation } from '../leads/mutate';
+import { reevaluateLead } from '../leads/reevaluate';
+import { evidenceFromCandidate, insertEvidence } from '../evidence/store';
 import { parseReport } from './parse';
 
 /**
@@ -382,29 +390,32 @@ export async function reviewCandidate(actor: Actor, input: ReviewInput, snapshot
 
   const status = STATUS_FOR_DECISION[input.decision];
   const now = new Date();
+  const snap = snapshot ?? (await loadCanonical());
 
-  // After cutover an ACCEPT creates the canonical lead. The lead is built BEFORE anything is written, and the
-  // decision, the lead, the candidate's resolution and both audit events commit in ONE transaction: a candidate
-  // that cannot be promoted is refused with nothing recorded, never left ACCEPTED-and-audited with no lead.
-  const snap = input.decision === 'ACCEPT' ? snapshot ?? (await loadCanonical()) : null;
-  const lead =
-    snap?.source === 'POSTGRES'
-      ? leadFromCandidate({
-          candidate,
-          targetNumber: nextTargetNumber(snap.leads.map(l => l.target_number)),
-          leadId: randomUUID(),
-          approvedBy: actor.name,
-          now: now.toISOString(),
-        })
-      : null;
+  // After cutover an ACCEPT creates the canonical lead — through the Phase B write path, under the canonical write
+  // lock, with the approval re-decided against suppression and leads read INSIDE the transaction (ADR-017, ADR-026).
+  if (input.decision === 'ACCEPT' && snap.source === 'POSTGRES') {
+    const refused = writeRefusal();
+    if (refused) throw new ResearchError(`Cannot import: ${refused}`);
+    const leadId = await acceptIntoCanonical(db, actor, { rowId: row.id, reviewedStatus: row.status, note: input.note, now });
+    return { status, resolvedLeadId: leadId, pendingExport: false, message: 'Approved and imported as a canonical lead, evaluated by the engine, with its evidence attached.' };
+  }
+
+  // A MERGE after cutover carries the candidate's research to the existing lead as EVIDENCE — never as field
+  // writes. Adopting a value onto the lead stays an explicit, attributed `lead.research_recorded` (ADR-025).
+  if (input.decision === 'MERGE' && snap.source === 'POSTGRES') {
+    const refused = writeRefusal();
+    if (refused) throw new ResearchError(`Cannot merge: ${refused}`);
+    const attached = await mergeAsEvidence(db, actor, { rowId: row.id, reviewedStatus: row.status, candidate, mergeIntoLeadId: input.mergeIntoLeadId!, note: input.note, now, assessment: { status: assessment.status, duplicateMatches: assessment.duplicateMatches.length } });
+    return { status, resolvedLeadId: input.mergeIntoLeadId!, pendingExport: false, message: `Merged: ${attached} piece(s) of evidence attached to the existing lead. No lead field was changed; record any value you adopt from the lead page.` };
+  }
 
   await db.transaction(async tx => {
-    if (lead) await tx.insert(schema.lead).values(leadRow(lead));
     // Conditional on the state that was reviewed: a concurrent review or import turns this into a refusal rather
     // than a second decision layered over the first.
     const updated = await tx
       .update(schema.researchCandidate)
-      .set({ status, reviewedByUserId: actor.userId, reviewedByLabel: actor.name, reviewedAt: now, reviewNote: input.note, ...(lead ? { resolvedLeadId: lead.lead_id } : {}) })
+      .set({ status, reviewedByUserId: actor.userId, reviewedByLabel: actor.name, reviewedAt: now, reviewNote: input.note })
       .where(and(eq(schema.researchCandidate.id, input.candidateId), eq(schema.researchCandidate.status, row.status), isNull(schema.researchCandidate.resolvedLeadId)))
       .returning({ id: schema.researchCandidate.id });
     if (!updated.length) throw new ResearchError('That candidate changed while you were reviewing it. Reload and review it again.');
@@ -422,28 +433,11 @@ export async function reviewCandidate(actor: Actor, input: ReviewInput, snapshot
         mergeIntoLeadId: input.mergeIntoLeadId ?? null,
       },
     });
-    if (lead) {
-      await recordAudit(tx, {
-        actor: { userId: actor.userId, label: actor.name },
-        action: 'research.candidate_imported',
-        target: { type: 'lead', id: lead.lead_id },
-        metadata: {
-          candidateId: input.candidateId,
-          targetNumber: lead.target_number,
-          company: lead.company_name,
-          researchState: lead.research_state,
-          emailStatus: lead.email_status,
-          phoneStatus: lead.phone_status,
-          approvedBy: actor.name,
-        },
-      });
-    }
   });
 
   if (input.decision !== 'ACCEPT') {
     return { status, resolvedLeadId: null, pendingExport: false, message: `Recorded as ${status}.` };
   }
-  if (lead) return { status, resolvedLeadId: lead.lead_id, pendingExport: false, message: 'Approved and imported as a canonical lead.' };
 
   // An approval in PRE_CUTOVER is real and recorded, but the canonical store is the JSON file the CLI owns.
   // Writing the lead here would create a second writer, which ADR-009 forbids.
@@ -478,42 +472,144 @@ export async function importApprovedCandidate(actor: Actor, candidateId: string,
   if (snapshot.source !== 'POSTGRES') {
     throw new ResearchError('Canonical import runs only after cutover, when Postgres owns the lead table.');
   }
+  const refused = writeRefusal();
+  if (refused) throw new ResearchError(`Cannot import: ${refused}`);
+  return acceptIntoCanonical(db, actor, { rowId: row.id, reviewedStatus: 'ACCEPTED', note: row.reviewNote, now: new Date(), alreadyApprovedBy: row.reviewedByLabel ?? actor.name });
+}
 
-  const lead = leadFromCandidate({
-    candidate,
-    targetNumber: nextTargetNumber(snapshot.leads.map(l => l.target_number)),
-    leadId: randomUUID(),
-    approvedBy: row.reviewedByLabel ?? actor.name,
-    now: new Date().toISOString(),
-  });
+// ── The canonical crossing ───────────────────────────────────────────────────
 
-  // One transaction: the lead and the candidate's resolution land together or not at all. A lead without its
-  // candidate marked resolved would be re-importable, and a resolved candidate without its lead would be lost.
-  await db.transaction(async tx => {
+interface AcceptInput {
+  rowId: string;
+  /** The status the reviewer saw. The candidate must still be in it, or the approval is refused. */
+  reviewedStatus: string;
+  note: string | null;
+  now: Date;
+  /** Set when importing a candidate a human already approved (the PRE_CUTOVER export queue). */
+  alreadyApprovedBy?: string;
+}
+
+/**
+ * THE ONLY PATH FROM A CANDIDATE TO A CANONICAL LEAD (ADR-012, ADR-017, ADR-026).
+ *
+ * One transaction under the canonical write lock. Everything the approval depends on is read INSIDE it — the
+ * candidate, every lead and the whole suppression list — and the approval is re-decided there, so a suppression
+ * committed a moment earlier (by anyone) is seen and refuses the import. The target number is allocated from the
+ * same locked read, so two approvals can never be handed the same number.
+ *
+ * The new lead then runs the engine immediately (gates, score, readiness), so it enters the funnel evaluated rather
+ * than sitting at RESEARCH_REQUIRED/0 forever, and carries its evidence as claim-level provenance. The lead, its
+ * evidence, its evaluation, the events, the candidate's resolution and the audit events land together or not at all.
+ */
+async function acceptIntoCanonical(db: Db, actor: Actor, input: AcceptInput): Promise<string> {
+  const ledger = ledgerLookup(readTitanState().tracker);
+  return db.transaction(async tx => {
+    await lockCanonicalWrites(tx);
+    const [row] = await tx.select().from(schema.researchCandidate).where(eq(schema.researchCandidate.id, input.rowId)).for('update');
+    if (!row) throw new ResearchError('That candidate does not exist.');
+    if (row.resolvedLeadId) throw new ResearchError('That candidate has already become a canonical lead.');
+    if (row.status !== input.reviewedStatus) throw new ResearchError('That candidate changed while you were reviewing it. Reload and review it again.');
+
+    const leads = (await tx.select({ record: schema.lead.record }).from(schema.lead)).map(r => r.record as KachmoLead);
+    const suppression = await readSuppressionInTx(tx);
+    const candidate = withDerivedEvidence(toDomainCandidate(row));
+    const fresh = assessCandidate(candidate, leads, suppression);
+    const approver = input.alreadyApprovedBy ?? actor.name;
+    const refusal = approvalRefusal({ ...candidate, status: 'AWAITING_REVIEW' }, fresh, approver);
+    if (refusal) throw new ResearchError(`Cannot approve: ${refusal.message}`);
+
+    const nowIso = input.now.toISOString();
+    const promoted = leadFromCandidate({ candidate, targetNumber: nextTargetNumber(leads.map(l => l.target_number)), leadId: randomUUID(), approvedBy: approver, now: nowIso });
+    const re = reevaluateLead(promoted, { suppression, ledgerStatus: ledger(promoted.target_number), now: nowIso });
+    const lead = re.next;
+    const violations = findInvariantViolations([lead]);
+    if (violations.length) throw new ResearchError(`Cannot import — the lead would be left in an impossible state: ${violations.join('; ')}`);
+
     await tx.insert(schema.lead).values(leadRow(lead));
+    const evidence = evidenceFromCandidate(candidate, lead.lead_id, row.id, { userId: actor.userId, label: actor.name });
+    await insertEvidence(tx, evidence);
+
     const resolved = await tx
       .update(schema.researchCandidate)
-      .set({ resolvedLeadId: lead.lead_id })
-      .where(and(eq(schema.researchCandidate.id, candidateId), isNull(schema.researchCandidate.resolvedLeadId)))
+      .set(
+        input.alreadyApprovedBy
+          ? { resolvedLeadId: lead.lead_id }
+          : { status: 'ACCEPTED', reviewedByUserId: actor.userId, reviewedByLabel: actor.name, reviewedAt: input.now, reviewNote: input.note, resolvedLeadId: lead.lead_id }
+      )
+      .where(and(eq(schema.researchCandidate.id, row.id), isNull(schema.researchCandidate.resolvedLeadId)))
       .returning({ id: schema.researchCandidate.id });
     if (!resolved.length) throw new ResearchError('That candidate has already been imported.');
+
+    await appendEvents(
+      tx,
+      [
+        { lead_id: lead.lead_id, target_number: lead.target_number, company_name: lead.company_name, event_type: 'LEAD_DISCOVERED', channel: 'SYSTEM', actor: 'SYSTEM', payload: { source: 'research_candidate', candidate_id: row.candidateId } },
+        ...re.events,
+      ],
+      nowIso
+    );
+    await insertEvaluation(tx, lead.lead_id, re.evaluation, { userId: actor.userId, label: actor.name });
+
+    if (!input.alreadyApprovedBy) {
+      await recordAudit(tx, {
+        actor: { userId: actor.userId, label: actor.name },
+        action: 'research.candidate_accept',
+        target: { type: 'research_candidate', id: row.id },
+        metadata: { decision: 'ACCEPT', status: 'ACCEPTED', company: row.companyName, assessmentStatus: fresh.status, duplicateMatches: fresh.duplicateMatches.length, mergeIntoLeadId: null },
+      });
+    }
     await recordAudit(tx, {
       actor: { userId: actor.userId, label: actor.name },
       action: 'research.candidate_imported',
       target: { type: 'lead', id: lead.lead_id },
       metadata: {
-        candidateId,
+        candidateId: row.id,
         targetNumber: lead.target_number,
         company: lead.company_name,
         researchState: lead.research_state,
+        leadPriority: lead.lead_priority,
         emailStatus: lead.email_status,
         phoneStatus: lead.phone_status,
-        approvedBy: row.reviewedByLabel ?? actor.name,
+        evidenceRows: evidence.length,
+        approvedBy: approver,
       },
     });
+    return lead.lead_id;
   });
+}
 
-  return lead.lead_id;
+interface MergeInput {
+  rowId: string;
+  reviewedStatus: string;
+  candidate: ResearchCandidate;
+  mergeIntoLeadId: string;
+  note: string | null;
+  now: Date;
+  assessment: { status: string; duplicateMatches: number };
+}
+
+/** MERGE after cutover: the decision, and the candidate's evidence attached to the existing lead, in one transaction. */
+async function mergeAsEvidence(db: Db, actor: Actor, input: MergeInput): Promise<number> {
+  return db.transaction(async tx => {
+    await lockCanonicalWrites(tx);
+    const [target] = await tx.select({ leadId: schema.lead.leadId }).from(schema.lead).where(eq(schema.lead.leadId, input.mergeIntoLeadId));
+    if (!target) throw new ResearchError('The lead to merge into does not exist.');
+    const updated = await tx
+      .update(schema.researchCandidate)
+      .set({ status: 'MERGED', reviewedByUserId: actor.userId, reviewedByLabel: actor.name, reviewedAt: input.now, reviewNote: input.note, resolvedLeadId: input.mergeIntoLeadId })
+      .where(and(eq(schema.researchCandidate.id, input.rowId), eq(schema.researchCandidate.status, input.reviewedStatus), isNull(schema.researchCandidate.resolvedLeadId)))
+      .returning({ id: schema.researchCandidate.id });
+    if (!updated.length) throw new ResearchError('That candidate changed while you were reviewing it. Reload and review it again.');
+    const evidence = evidenceFromCandidate(input.candidate, input.mergeIntoLeadId, input.rowId, { userId: actor.userId, label: actor.name });
+    await insertEvidence(tx, evidence);
+    await recordAudit(tx, {
+      actor: { userId: actor.userId, label: actor.name },
+      action: 'research.candidate_merge',
+      target: { type: 'research_candidate', id: input.rowId },
+      metadata: { decision: 'MERGE', status: 'MERGED', assessmentStatus: input.assessment.status, duplicateMatches: input.assessment.duplicateMatches, mergeIntoLeadId: input.mergeIntoLeadId, evidenceRows: evidence.length },
+    });
+    return evidence.length;
+  });
 }
 
 /** Candidates a human approved that have not yet become canonical leads — the export queue in PRE_CUTOVER. */

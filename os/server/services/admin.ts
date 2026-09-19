@@ -1,9 +1,13 @@
 import 'server-only';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, isNull, sql } from 'drizzle-orm';
 import * as schema from '../db/schema/index';
 import { getServer } from '../auth/instance';
 import { ROLES, ROLE_PERMISSIONS, PERMISSIONS, permissionsFor, canAssignRole, type Role } from '../authz/permissions';
 import type { Actor } from '../authz/authorize';
+import { appWritesEnabled } from '../repo/phase';
+import { engineRef } from '../leads/reevaluate';
+import { evidenceLevelCounts } from '../evidence/store';
+import { MAX_ATTEMPTS } from '../evidence/fetch-run';
 
 /** Read surfaces for the administrative pages: users, roles, audit log and system status. */
 
@@ -120,4 +124,61 @@ export async function getSystemStatus(): Promise<SystemStatus> {
     counts[name] = Number(r.n);
   }
   return { methodology: methodology ?? null, counts };
+}
+
+// ── Phase B write-path health (counts of existing states only; no invented metrics) ──
+
+export interface WritePathHealth {
+  appWrites: boolean;
+  engineRef: string;
+  lastReevaluation: { at: Date; actor: string; written: number | null } | null;
+  evaluations: number;
+  revisions: number;
+  evidenceByLevel: Record<string, number>;
+  retrievalsByOutcome: Record<string, number>;
+  /** URLs whose fetch failed three times and are left for a person. */
+  needsHuman: number;
+  /** Active users holding a lead-write permission but no engine-actor binding: they will be refused. */
+  unboundWriters: string[];
+}
+
+export async function getWritePathHealth(): Promise<WritePathHealth> {
+  const { db } = getServer();
+  const count = async (table: typeof schema.leadEvaluation | typeof schema.leadRevision) => Number((await db.select({ n: sql<number>`count(*)::int` }).from(table))[0].n);
+
+  const [last] = await db.select().from(schema.auditEvent).where(eq(schema.auditEvent.action, 'lead.reevaluation_run')).orderBy(desc(schema.auditEvent.occurredAt)).limit(1);
+  const outcomes = await db.select({ outcome: schema.evidenceRetrieval.outcome, url: schema.evidenceRetrieval.requestedUrl }).from(schema.evidenceRetrieval);
+  const retrievalsByOutcome: Record<string, number> = {};
+  const failuresByUrl = new Map<string, number>();
+  const okUrls = new Set<string>();
+  for (const o of outcomes) {
+    retrievalsByOutcome[o.outcome] = (retrievalsByOutcome[o.outcome] ?? 0) + 1;
+    if (o.outcome === 'OK') okUrls.add(o.url);
+    else failuresByUrl.set(o.url, (failuresByUrl.get(o.url) ?? 0) + 1);
+  }
+  const needsHuman = [...failuresByUrl.entries()].filter(([url, n]) => n >= MAX_ATTEMPTS && !okUrls.has(url)).length;
+
+  const users = await db.select({ id: schema.user.id, name: schema.user.name, deactivatedAt: schema.user.deactivatedAt }).from(schema.user);
+  const roles = await db.select().from(schema.userRole);
+  const bound = new Set((await db.select({ userId: schema.userEngineActor.userId }).from(schema.userEngineActor).where(isNull(schema.userEngineActor.revokedAt))).map(b => b.userId));
+  const WRITE = ['lead.edit', 'outreach.call', 'outreach.whatsapp', 'pipeline.update', 'suppression.create'] as const;
+  const unboundWriters = users
+    .filter(u => !u.deactivatedAt && !bound.has(u.id))
+    .filter(u => {
+      const p = permissionsFor(roles.filter(r => r.userId === u.id).map(r => r.role));
+      return WRITE.some(w => p.has(w));
+    })
+    .map(u => u.name);
+
+  return {
+    appWrites: appWritesEnabled(),
+    engineRef: engineRef(),
+    lastReevaluation: last ? { at: last.occurredAt, actor: last.actorLabel, written: Number((last.metadata as Record<string, unknown>).written ?? 0) } : null,
+    evaluations: await count(schema.leadEvaluation),
+    revisions: await count(schema.leadRevision),
+    evidenceByLevel: await evidenceLevelCounts(db),
+    retrievalsByOutcome,
+    needsHuman,
+    unboundWriters,
+  };
 }

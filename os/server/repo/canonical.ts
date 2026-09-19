@@ -1,10 +1,10 @@
 import 'server-only';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { asc } from 'drizzle-orm';
+import { join } from 'node:path';
+import { asc, isNull } from 'drizzle-orm';
 import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '@kachmo/core/leads/schema.js';
-import { parseTrackerContent, scheduledQueueFromJson, type TrackerRow, type ScheduledEmail } from '@kachmo/core/email-ledger/tracker.js';
+import type { TrackerRow, ScheduledEmail } from '@kachmo/core/email-ledger/tracker.js';
+import { REPO_ROOT, readTitanState as readTitanStateAt } from './titan-ledger';
 import { validateLeadDatabase } from '@kachmo/core/leads/validation.js';
 import * as schema from '../db/schema/index';
 import { getServer } from '../auth/instance';
@@ -27,7 +27,7 @@ import { suppressionEntryFromRow, analyticsEventFromRow } from '../db/migration/
  */
 
 /** Repository root — `Clients/mails`, two levels above `os/server/repo`. */
-export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+export { REPO_ROOT };
 
 const CANONICAL_FILES = {
   leads: 'database/kachmo_leads.json',
@@ -49,6 +49,11 @@ export interface CanonicalSnapshot {
   scheduled: ScheduledEmail[];
   /** Non-fatal problems worth showing the operator (a missing optional file, an unreadable ledger). */
   warnings: string[];
+  /**
+   * The stored version of each lead (lead_id → version), POST_CUTOVER only. An operator form carries the version it
+   * was rendered from, so a write made against a lead that has since changed is refused rather than layered on top.
+   */
+  versions: Map<string, number>;
 }
 
 const readIfPresent = (rel: string): string | null => {
@@ -57,25 +62,7 @@ const readIfPresent = (rel: string): string | null => {
 };
 
 /** The Titan ledger and production queue, read from disk. Never written, in any phase. */
-function readTitanState(): { tracker: Map<string, TrackerRow>; scheduled: ScheduledEmail[]; warnings: string[] } {
-  const warnings: string[] = [];
-  let tracker = new Map<string, TrackerRow>();
-  const trackerRaw = readIfPresent(CANONICAL_FILES.tracker);
-  if (trackerRaw === null) warnings.push(`${CANONICAL_FILES.tracker} is not present; email ledger state is unavailable.`);
-  else tracker = parseTrackerContent(trackerRaw);
-
-  let scheduled: ScheduledEmail[] = [];
-  const queueRaw = readIfPresent(CANONICAL_FILES.scheduledQueue);
-  if (queueRaw === null) warnings.push(`${CANONICAL_FILES.scheduledQueue} is not present; the production email queue is unavailable.`);
-  else {
-    try {
-      scheduled = scheduledQueueFromJson(JSON.parse(queueRaw), CANONICAL_FILES.scheduledQueue);
-    } catch (e) {
-      warnings.push(`${CANONICAL_FILES.scheduledQueue} is unreadable: ${(e as Error).message}`);
-    }
-  }
-  return { tracker, scheduled, warnings };
-}
+const readTitanState = () => readTitanStateAt(REPO_ROOT);
 
 /**
  * Reads the committed JSON store with the engine's own validation. Fails closed: a malformed lead database throws
@@ -109,15 +96,17 @@ function readJsonStore(): Pick<CanonicalSnapshot, 'leads' | 'suppression' | 'eve
   return { leads: validated.leads, suppression, events };
 }
 
-async function readPostgres(): Promise<Pick<CanonicalSnapshot, 'leads' | 'suppression' | 'events'>> {
+async function readPostgres(): Promise<Pick<CanonicalSnapshot, 'leads' | 'suppression' | 'events' | 'versions'>> {
   const { db } = getServer();
   const leadRows = await db.select().from(schema.lead).orderBy(asc(schema.lead.targetNumber));
-  const supRows = await db.select().from(schema.suppressionEntry).orderBy(asc(schema.suppressionEntry.sequence));
+  // ACTIVE suppression only (ADR-010): a revoked entry is lifted — the same list the publisher and preflight use.
+  const supRows = await db.select().from(schema.suppressionEntry).where(isNull(schema.suppressionEntry.revokedAt)).orderBy(asc(schema.suppressionEntry.sequence));
   const evRows = await db.select().from(schema.analyticsEvent).orderBy(asc(schema.analyticsEvent.sequence));
   return {
     leads: leadRows.map(r => r.record as KachmoLead),
     suppression: supRows.map(suppressionEntryFromRow),
     events: evRows.map(analyticsEventFromRow),
+    versions: new Map(leadRows.map(r => [r.leadId, r.version])),
   };
 }
 
@@ -131,7 +120,7 @@ export async function loadCanonical(env: Record<string, string | undefined> = pr
   const phase = resolveCutoverPhase(env);
   const titan = readTitanState();
   const usePostgres = phase === 'POST_CUTOVER';
-  const core = usePostgres ? await readPostgres() : readJsonStore();
+  const core = usePostgres ? await readPostgres() : { ...readJsonStore(), versions: new Map<string, number>() };
   return {
     phase,
     source: usePostgres ? 'POSTGRES' : 'GIT_JSON',

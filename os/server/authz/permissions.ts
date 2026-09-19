@@ -17,6 +17,7 @@ export const PERMISSIONS = [
   'research.create',
   'research.upload',
   'research.approve',
+  'evidence.review',
   'outreach.call',
   'outreach.whatsapp',
   'outreach.email',
@@ -48,7 +49,8 @@ const ALL: readonly Permission[] = PERMISSIONS;
 export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   OWNER: ALL,
   ADMIN: ALL.filter(p => !['methodology.manage', 'suppression.revoke', 'api_clients.manage'].includes(p)),
-  RESEARCHER: ['lead.view', 'lead.view_contacts', 'lead.create', 'lead.edit', 'research.create', 'research.upload', 'suppression.view', 'analytics.view'],
+  // evidence.review (Phase B): confirming a retrieved page states a claim. It never changes a lead or a gate.
+  RESEARCHER: ['lead.view', 'lead.view_contacts', 'lead.create', 'lead.edit', 'research.create', 'research.upload', 'evidence.review', 'suppression.view', 'analytics.view'],
   OUTREACH: ['lead.view', 'lead.view_contacts', 'outreach.call', 'outreach.whatsapp', 'outreach.email', 'email.view_ledger', 'pipeline.update', 'suppression.view', 'suppression.create', 'analytics.view'],
   INTERN: ['lead.view', 'research.create', 'research.upload'],
   VIEWER: ['lead.view', 'analytics.view'],

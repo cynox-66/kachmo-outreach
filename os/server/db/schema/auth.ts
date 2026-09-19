@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, text, timestamp, boolean, integer, bigint, index, primaryKey, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, bigint, index, primaryKey, check, uuid, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
  * Better Auth core tables (user, session, account, verification) in the layout its Drizzle adapter expects, plus
@@ -75,6 +75,34 @@ export const rateLimit = pgTable('rate_limit', {
   count: integer('count').notNull(),
   lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
 });
+
+/** The engine actors core/ decisions accept (`Actor` minus SYSTEM). Kept in sync with core by tests. */
+export const ENGINE_ACTOR_VALUES = ['DEV', 'AADI'] as const;
+
+/**
+ * PHASE B — which core engine actor an application user acts as (ADR-021).
+ *
+ * core/'s write decisions take `by: 'DEV' | 'AADI'`. An application user is a named person, so an OWNER binds each
+ * user who may write leads to one engine actor. A user with no active binding cannot write a lead at all. Bindings
+ * are never deleted; a binding ends with an attributed revocation, and a new one may then be made.
+ */
+export const userEngineActor = pgTable(
+  'user_engine_actor',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'restrict' }),
+    engineActor: text('engine_actor').notNull(),
+    boundByLabel: text('bound_by_label').notNull(),
+    boundAt: timestamp('bound_at', { withTimezone: true }).defaultNow().notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokedByLabel: text('revoked_by_label'),
+  },
+  t => [
+    uniqueIndex('user_engine_actor_active_idx').on(t.userId).where(sql`${t.revokedAt} is null`),
+    check('user_engine_actor_value_check', sql`${t.engineActor} in ('DEV', 'AADI')`),
+    check('user_engine_actor_revocation_check', sql`(${t.revokedAt} is null) = (${t.revokedByLabel} is null)`),
+  ]
+);
 
 /** Kept in sync with os/server/authz/permissions.ts (asserted by tests). */
 export const ROLE_VALUES = ['OWNER', 'ADMIN', 'RESEARCHER', 'OUTREACH', 'INTERN', 'VIEWER'] as const;
