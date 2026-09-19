@@ -123,8 +123,10 @@ Run from `Clients/mails/os`. Every data step is dry-run first and applied with t
    `KACHMO_MIGRATE_CONFIRM_HOST=<host> npm run db:migrate`. Hash production data before and after.
 2. **Bind people:** `npm run actor:bind -- --user=<email> --as=DEV|AADI --actor="<owner name>"` for each writer.
    Settings → *Unbound writers* must be empty.
-3. **Re-evaluate:** `npm run leads:reevaluate` (dry run). Expect the 18 reconciled leads' stale next-action text and
-   120 first evaluations. **Investigate anything else before applying.** Then
+3. **Re-evaluate:** `npm run leads:reevaluate` (dry run). Rehearsed expectation (see
+   `PHASE_B_PRODUCTION_REHEARSAL_2026-09-19.md`): **23 leads change, each only `next_action`** (the 18 reconciled
+   webmail sends + 106–110 sent by the cron on 2026-09-14), 97 evaluation-only, no state or priority change.
+   **Anything else: stop and investigate before applying.** Then
    `npm run leads:reevaluate -- --apply --confirm=<digest> --actor="<name>"`.
 4. **Switch writes on** only in the designated production deployment: `KACHMO_APP_WRITES=on` **and**
    `KACHMO_APP_WRITES_HOST=<the exact production database host>`, in a production build. Never in `os/.env.local`;
