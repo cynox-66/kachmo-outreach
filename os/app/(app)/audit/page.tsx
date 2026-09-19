@@ -15,11 +15,18 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <h1>Audit log</h1>
-      <p className="lede">
+      <div className="row between" style={{ marginBottom: 6 }}>
+        <div>
+          <h1>Audit Log</h1>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Append-only security log · Contact values and secrets redacted at write time
+          </p>
+        </div>
+        <span className="badge info">{rows.length} events</span>
+      </div>
+      <p className="lede" style={{ marginBottom: 20 }}>
         Append-only at the database level: a trigger rejects UPDATE and DELETE, so no application bug and no ad-hoc
-        query through the app&rsquo;s connection can rewrite history. Contact values and secrets are redacted before
-        writing, so this log never becomes a back door to the data it protects.
+        query through the app&rsquo;s connection can rewrite history.
       </p>
 
       <form className="filters" method="get" action="/audit">

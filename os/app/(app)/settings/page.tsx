@@ -1,5 +1,5 @@
 import { requirePermission } from '@/server/auth/current-actor';
-import { getSystemStatus } from '@/server/services/admin';
+import { getSystemStatus, getWritePathHealth } from '@/server/services/admin';
 import { loadCanonical } from '@/server/repo/canonical';
 import { phaseBanner, leadWritesEnabled } from '@/server/repo/phase';
 import { DEFAULT_THRESHOLDS } from '@kachmo/core/research/inventory.js';
@@ -18,13 +18,22 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   await requirePermission('settings.manage');
   const [status, snapshot] = await Promise.all([getSystemStatus(), loadCanonical().catch(() => null)]);
+  const health = snapshot?.source === 'POSTGRES' ? await getWritePathHealth().catch(() => null) : null;
   const phase = snapshot?.phase ?? 'PRE_CUTOVER';
   const banner = phaseBanner(phase);
 
   return (
     <>
-      <h1>Settings</h1>
-      <p className="lede">
+      <div className="row between" style={{ marginBottom: 6 }}>
+        <div>
+          <h1>Settings & Config</h1>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            System configuration · Version-controlled and golden-baseline pinned
+          </p>
+        </div>
+        <span className={`badge ${banner.level === 'warn' ? 'warn' : 'info'}`}>{phase}</span>
+      </div>
+      <p className="lede" style={{ marginBottom: 20 }}>
         Everything that decides how a lead is qualified is versioned in code and pinned by the golden regression.
         This page shows what is configured; it does not let you change qualification semantics from a form.
       </p>
@@ -46,6 +55,36 @@ export default async function SettingsPage() {
           Set with <code>KACHMO_CUTOVER_PHASE</code> ({CUTOVER_PHASES.join(' · ')}). Unset means PRE_CUTOVER — the safe direction.
         </p>
       </div>
+
+      {health ? (
+        <>
+          <h2>Write path (Phase B)</h2>
+          <div className="panel small">
+            <dl className="kv">
+              <dt>Application writes</dt>
+              <dd>
+                <span className={`badge ${health.appWrites ? 'ok' : 'warn'}`}>{health.appWrites ? 'on' : 'off'}</span>{' '}
+                <span className="muted">KACHMO_APP_WRITES — off unless deliberately switched on in the designated environment</span>
+              </dd>
+              <dt>Engine build</dt>
+              <dd><code>{health.engineRef}</code></dd>
+              <dt>Last re-evaluation</dt>
+              <dd>{health.lastReevaluation ? `${health.lastReevaluation.at.toISOString().slice(0, 16).replace('T', ' ')} by ${health.lastReevaluation.actor} · ${health.lastReevaluation.written ?? 0} lead(s) rewritten` : <span className="muted">never run — npm --prefix os run leads:reevaluate</span>}</dd>
+              <dt>Evaluations / revisions</dt>
+              <dd>{health.evaluations} recorded · {health.revisions} superseded versions kept</dd>
+              <dt>Claim evidence</dt>
+              <dd>{Object.keys(health.evidenceByLevel).length ? Object.entries(health.evidenceByLevel).map(([k, v]) => `${v} ${k}`).join(' · ') : <span className="muted">none yet</span>}</dd>
+              <dt>Fetch attempts</dt>
+              <dd>
+                {Object.keys(health.retrievalsByOutcome).length ? Object.entries(health.retrievalsByOutcome).map(([k, v]) => `${v} ${k}`).join(' · ') : <span className="muted">none yet</span>}
+                {health.needsHuman ? <> · <span className="badge warn">{health.needsHuman} need a human</span></> : null}
+              </dd>
+              <dt>Unbound writers</dt>
+              <dd>{health.unboundWriters.length ? <span className="badge warn">{health.unboundWriters.join(', ')}</span> : <span className="muted">none — everyone who may write is bound to an engine actor</span>}</dd>
+            </dl>
+          </div>
+        </>
+      ) : null}
 
       <h2>Methodology</h2>
       <div className="panel">

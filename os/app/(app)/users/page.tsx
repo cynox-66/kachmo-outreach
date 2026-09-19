@@ -14,10 +14,17 @@ export default async function UsersPage() {
 
   return (
     <>
-      <h1>Users</h1>
-      <p className="lede">
-        Invite-only: there is no public sign-up. Roles come from the database on every request, never from anything
-        the browser sends. A user with no role has no permissions.
+      <div className="row between" style={{ marginBottom: 6 }}>
+        <div>
+          <h1>Team & Access</h1>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Invite-only team workspace · Database-enforced server-side RBAC
+          </p>
+        </div>
+        <span className="badge info">{users.length} members</span>
+      </div>
+      <p className="lede" style={{ marginBottom: 20 }}>
+        Roles come from the database on every request, never from client input. A user with no role has no permissions.
       </p>
 
       <h2>People ({users.length})</h2>

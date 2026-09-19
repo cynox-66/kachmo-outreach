@@ -11,24 +11,33 @@ export const dynamic = 'force-dynamic';
  * Every authenticated page sits under this layout, which resolves the actor server-side. Navigation is filtered by
  * permission for convenience only — each page enforces its own permission again, because hidden links are not security.
  */
-const NAV: Array<{ href: string; label: string; permission: Permission }> = [
-  { href: '/', label: 'Dashboard', permission: 'lead.view' },
+const PRIMARY_NAV: Array<{ href: string; label: string; permission: Permission }> = [
+  { href: '/', label: 'Today', permission: 'lead.view' },
   { href: '/leads', label: 'Leads', permission: 'lead.view' },
   { href: '/research', label: 'Research', permission: 'research.create' },
-  { href: '/inventory', label: 'Inventory', permission: 'lead.view' },
+  { href: '/pipeline', label: 'Pipeline', permission: 'pipeline.update' },
+];
+
+const WORKFLOW_NAV: Array<{ href: string; label: string; permission: Permission }> = [
   { href: '/calls', label: 'Calls', permission: 'outreach.call' },
   { href: '/whatsapp', label: 'WhatsApp', permission: 'outreach.whatsapp' },
   { href: '/email', label: 'Email', permission: 'email.view_ledger' },
-  { href: '/pipeline', label: 'Pipeline', permission: 'pipeline.update' },
+  { href: '/inventory', label: 'Inventory', permission: 'lead.view' },
+];
+
+const ADMIN_NAV: Array<{ href: string; label: string; permission: Permission }> = [
   { href: '/analytics', label: 'Analytics', permission: 'analytics.view' },
   { href: '/audit', label: 'Audit log', permission: 'audit.view' },
-  { href: '/users', label: 'Users', permission: 'users.manage' },
+  { href: '/users', label: 'Team', permission: 'users.manage' },
   { href: '/settings', label: 'Settings', permission: 'settings.manage' },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const actor = await requireActor();
-  const visible = NAV.filter(item => actor.permissions.has(item.permission));
+  const visiblePrimary = PRIMARY_NAV.filter(item => actor.permissions.has(item.permission));
+  const visibleWorkflow = WORKFLOW_NAV.filter(item => actor.permissions.has(item.permission));
+  const visibleAdmin = ADMIN_NAV.filter(item => actor.permissions.has(item.permission));
+
   // The phase banner is rendered from the declared phase, so the app always states which store it is reading.
   const snapshot = await loadCanonical().catch(() => null);
   const banner = snapshot ? phaseBanner(snapshot.phase) : null;
@@ -41,11 +50,38 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <small>Outbound OS</small>
         </div>
         <nav className="nav" aria-label="Sections">
-          {visible.map(item => (
-            <Link key={item.href} href={item.href}>
-              {item.label}
-            </Link>
-          ))}
+          {visiblePrimary.length ? (
+            <div className="nav-section">
+              <span className="nav-section-title">Work</span>
+              {visiblePrimary.map(item => (
+                <Link key={item.href} href={item.href}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+
+          {visibleWorkflow.length ? (
+            <div className="nav-section">
+              <span className="nav-section-title">Channels</span>
+              {visibleWorkflow.map(item => (
+                <Link key={item.href} href={item.href}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+
+          {visibleAdmin.length ? (
+            <div className="nav-section">
+              <span className="nav-section-title">System</span>
+              {visibleAdmin.map(item => (
+                <Link key={item.href} href={item.href}>
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
         </nav>
         <div className="who">
           {banner ? (

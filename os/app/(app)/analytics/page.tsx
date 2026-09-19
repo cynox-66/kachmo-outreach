@@ -14,11 +14,16 @@ export default async function AnalyticsPage() {
 
   return (
     <>
-      <div className="row between">
-        <h1>Analytics</h1>
+      <div className="row between" style={{ marginBottom: 6 }}>
+        <div>
+          <h1>Analytics</h1>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Operational performance · Measured, never estimated
+          </p>
+        </div>
         <span className="small muted">week {r.week.start} → {r.week.end}</span>
       </div>
-      <p className="lede">{r.note}</p>
+      <p className="lede" style={{ marginBottom: 20 }}>{r.note}</p>
 
       <h2>Funnel (all time)</h2>
       <div className="tablewrap">
