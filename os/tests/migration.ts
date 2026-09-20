@@ -79,7 +79,7 @@ group('1. The rehearsal is an exact-commit, reproducible record');
   assert(JSON.stringify(a.manifest.source.leadIds) === JSON.stringify(a.manifest.target.leadIds), 'the lead IDs in the database are exactly the source lead IDs, in the same order');
   assert(a.manifest.source.targetNumbers.length === new Set(a.manifest.source.targetNumbers).size, 'every target number in the manifest is unique');
   assert(Object.values(a.manifest.source.files).every(f => /^[0-9a-f]{64}$/.test(f.sha256)), 'every source file is pinned by SHA-256');
-  assert(a.manifest.schema.migrations.length === 5 && a.manifest.schema.tables.length === 19, 'the manifest pins the schema version and table inventory', a.manifest.schema.migrations.map(m => m.tag));
+  assert(a.manifest.schema.migrations.length === 6 && a.manifest.schema.tables.length === 20, 'the manifest pins the schema version and table inventory', a.manifest.schema.migrations.map(m => m.tag));
   assert(a.manifest.schema.triggers.length > 0 && a.manifest.schema.indexes.length > 0 && a.manifest.schema.constraints.length > 0, 'the manifest records constraints, indexes and triggers');
   assert(!/@|\+\d{6}/.test(JSON.stringify(a.manifest)), 'the manifest holds no contact data');
   assert(typeof a.manifest.codeTreeDirty === 'boolean' && a.manifest.codeCommit === codeRevision().commit, 'the manifest records which code produced it, and whether the tree was dirty');

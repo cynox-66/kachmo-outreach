@@ -87,3 +87,37 @@ export const auditEvent = pgTable(
     check('audit_event_action_format_check', sql`${t.action} ~ '^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$'`),
   ]
 );
+
+/**
+ * PHASE E — the job ledger (ADR-033).
+ *
+ * One row per (job, period). It is what makes a scheduled job safe to run twice: the idempotency key is unique, so
+ * a repeat of work that already SUCCEEDED is skipped rather than redone, a run that crashed is recognised by its
+ * expired lease, and a failure is retried a bounded number of times and then left for a person.
+ *
+ * Rows are never deleted (database trigger) and carry no lead data: a summary of counts, and an error string.
+ */
+export const jobRun = pgTable(
+  'job_run',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    job: text('job').notNull(),
+    /** `<job>:<period>` — the same work is never done twice. */
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    status: text('status').notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** While this is in the future, another process is believed to be running this key. */
+    leaseUntil: timestamp('lease_until', { withTimezone: true }).notNull(),
+    actorLabel: text('actor_label').notNull(),
+    summary: jsonb('summary').notNull().default({}),
+    error: text('error'),
+  },
+  t => [
+    index('job_run_job_idx').on(t.job, t.startedAt),
+    check('job_run_status_check', sql`${t.status} in ('RUNNING', 'SUCCEEDED', 'FAILED', 'ABANDONED')`),
+    check('job_run_attempt_check', sql`${t.attempt} between 1 and 10`),
+    check('job_run_finished_check', sql`(${t.status} = 'RUNNING') = (${t.finishedAt} is null)`),
+  ]
+);

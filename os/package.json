@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run build:core && tsx tests/run.ts && tsx tests/migration.ts && tsx tests/auth.ts && tsx tests/shell.ts && tsx tests/sync.ts && tsx --conditions=react-server tests/research.ts && tsx --conditions=react-server tests/app.ts && tsx tests/suppression-publish.ts && tsx tests/historical-sends.ts && tsx --conditions=react-server tests/lead-writes.ts && tsx --conditions=react-server tests/evidence.ts && tsx --conditions=react-server tests/operating-loop.ts && tsx --conditions=react-server tests/evidence-intelligence.ts",
+    "test": "npm run build:core && tsx tests/run.ts && tsx tests/migration.ts && tsx tests/auth.ts && tsx tests/shell.ts && tsx tests/sync.ts && tsx --conditions=react-server tests/research.ts && tsx --conditions=react-server tests/app.ts && tsx tests/suppression-publish.ts && tsx tests/historical-sends.ts && tsx --conditions=react-server tests/lead-writes.ts && tsx --conditions=react-server tests/evidence.ts && tsx --conditions=react-server tests/operating-loop.ts && tsx --conditions=react-server tests/evidence-intelligence.ts && tsx --conditions=react-server tests/jobs.ts",
     "test:db": "tsx tests/run.ts",
     "test:auth": "tsx tests/auth.ts",
     "test:shell": "tsx tests/shell.ts",
@@ -39,7 +39,10 @@
     "test:concurrency": "npm run build:core && tsx --conditions=react-server tests/concurrency.ts",
     "test:loop": "npm run build:core && tsx --conditions=react-server tests/operating-loop.ts",
     "methodology:shadow": "npm run build:core && tsx server/evidence/coverage.ts",
-    "test:intelligence": "npm run build:core && tsx --conditions=react-server tests/evidence-intelligence.ts"
+    "test:intelligence": "npm run build:core && tsx --conditions=react-server tests/evidence-intelligence.ts",
+    "jobs:run": "npm run build:core && tsx server/jobs/cli.ts",
+    "jobs:status": "tsx server/jobs/cli.ts --status",
+    "test:jobs": "npm run build:core && tsx --conditions=react-server tests/jobs.ts"
   },
   "engines": {
     "node": ">=20.9"

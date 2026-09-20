@@ -1,0 +1,79 @@
+name: Maintenance Jobs
+
+# ==========================================================================
+# SCHEDULED MAINTENANCE IS DISABLED UNTIL A HUMAN ENABLES IT.
+#
+# These jobs never contact a prospect. They re-fetch evidence sources that
+# have gone stale, count what has drifted, and record the weekly funnel.
+# Between them they write exactly: evidence_retrieval rows (and the links to
+# the claims that cite them), the job ledger, and audit events. No lead, no
+# suppression entry, no queue and no Titan file is touched (ADR-033/034).
+#
+# TO ENABLE: uncomment the schedule block below in a reviewed commit on main.
+# Until then every run is a deliberate workflow_dispatch.
+#
+# on:
+#   schedule:
+#     # 04:30 UTC daily — before the working day in both operating timezones.
+#     - cron: '30 4 * * *'
+# ==========================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run'
+        required: true
+        type: choice
+        options:
+          - evidence-refresh
+          - stale-data
+          - weekly-report
+      limit:
+        description: 'Maximum items (evidence-refresh only)'
+        required: false
+        default: '25'
+        type: string
+
+permissions:
+  contents: read
+
+# One maintenance run at a time. The ledger would refuse a duplicate anyway; this avoids the wasted work.
+concurrency:
+  group: maintenance-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix os
+          npm --prefix os run build:core
+
+      # The job writes, so the exact target host is confirmed (ADR-030), and the ledger makes a repeat a no-op.
+      - name: Run job
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KACHMO_OPERATOR_CONFIRM_HOST: ${{ secrets.KACHMO_DATABASE_HOST }}
+          KACHMO_CUTOVER_PHASE: POST_CUTOVER
+          KACHMO_NO_LOCAL_ENV: '1'
+        run: npm --prefix os run jobs:run -- --job=${{ inputs.job || 'stale-data' }} --limit=${{ inputs.limit || '25' }} --actor=SCHEDULED_JOB
+
+      - name: Show the ledger
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KACHMO_NO_LOCAL_ENV: '1'
+        run: npm --prefix os run jobs:status

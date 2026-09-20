@@ -59,10 +59,11 @@ group('1. Schema mirrors core/ (no second definition of allowed values)');
   // it, so an uploaded report can never mutate a canonical lead.
   // Phase B adds three, each history or identity rather than a second copy of state: lead_revision (superseded lead
   // records, ADR-022), evidence_retrieval (what a fetch returned, ADR-023) and user_engine_actor (ADR-021).
+  // Phase E adds job_run: the ledger that makes a scheduled job idempotent and observable (ADR-033).
   const JUSTIFIED_TABLES = [
-    'account', 'analytics_event', 'audit_event', 'evidence_retrieval', 'lead', 'lead_evaluation', 'lead_evidence', 'lead_revision',
-    'methodology_version', 'rate_limit', 'research_brief', 'research_candidate', 'research_report', 'session', 'suppression_entry',
-    'user', 'user_engine_actor', 'user_role', 'verification',
+    'account', 'analytics_event', 'audit_event', 'evidence_retrieval', 'job_run', 'lead', 'lead_evaluation', 'lead_evidence',
+    'lead_revision', 'methodology_version', 'rate_limit', 'research_brief', 'research_candidate', 'research_report', 'session',
+    'suppression_entry', 'user', 'user_engine_actor', 'user_role', 'verification',
   ];
   assert(JSON.stringify(allTables) === JSON.stringify(JUSTIFIED_TABLES), `exactly the ${JUSTIFIED_TABLES.length} justified tables exist across all migrations`, allTables);
   assert(tables.length === 12, 'the initial migration created the 12 Phase 1.2 tables', tables);

@@ -1,5 +1,8 @@
 import { requirePermission } from '@/server/auth/current-actor';
 import { getSystemStatus, getWritePathHealth } from '@/server/services/admin';
+import { jobStatus } from '@/server/jobs/runner';
+import { getServer } from '@/server/auth/instance';
+import { JOB_WRITES, JOBS } from '@/server/jobs/jobs';
 import { loadCanonical } from '@/server/repo/canonical';
 import { phaseBanner, leadWritesEnabled } from '@/server/repo/phase';
 import { DEFAULT_THRESHOLDS } from '@kachmo/core/research/inventory.js';
@@ -19,6 +22,7 @@ export default async function SettingsPage() {
   await requirePermission('settings.manage');
   const [status, snapshot] = await Promise.all([getSystemStatus(), loadCanonical().catch(() => null)]);
   const health = snapshot?.source === 'POSTGRES' ? await getWritePathHealth().catch(() => null) : null;
+  const jobs = snapshot?.source === 'POSTGRES' ? await jobStatus(getServer().db).catch(() => []) : [];
   const phase = snapshot?.phase ?? 'PRE_CUTOVER';
   const banner = phaseBanner(phase);
 
@@ -82,6 +86,53 @@ export default async function SettingsPage() {
               <dt>Unbound writers</dt>
               <dd>{health.unboundWriters.length ? <span className="badge warn">{health.unboundWriters.join(', ')}</span> : <span className="muted">none — everyone who may write is bound to an engine actor</span>}</dd>
             </dl>
+          </div>
+        </>
+      ) : null}
+
+      {health ? (
+        <>
+          <h2>Maintenance jobs (Phase E)</h2>
+          <div className="panel small">
+            <p className="muted" style={{ marginTop: 0 }}>
+              Bounded, idempotent and invoked — by a person, or by the committed workflow whose schedule is disabled until
+              someone enables it. No job contacts a prospect or writes a lead.
+            </p>
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>May write</th>
+                    <th>Last run</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {JOBS.map(j => {
+                    const r = jobs.find(x => x.job === j);
+                    return (
+                      <tr key={j}>
+                        <td><code>{j}</code></td>
+                        <td className="wrap muted">{JOB_WRITES[j].join(', ')}</td>
+                        <td>{r ? `${r.startedAt.toISOString().slice(0, 16).replace('T', ' ')} (attempt ${r.attempt})` : <span className="muted">never</span>}</td>
+                        <td className="wrap">
+                          {r ? (
+                            <>
+                              <span className={`badge ${r.status === 'SUCCEEDED' ? 'ok' : r.status === 'RUNNING' ? 'warn' : 'bad'}`}>{r.status}</span>
+                              {r.error ? <div className="muted">{r.error.slice(0, 160)}</div> : null}
+                              {Object.keys(r.summary).length ? <div className="muted">{JSON.stringify(r.summary).slice(0, 200)}</div> : null}
+                            </>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       ) : null}
