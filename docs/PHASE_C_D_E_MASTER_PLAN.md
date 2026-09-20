@@ -1,6 +1,17 @@
 # Kachmo Outbound OS — Phase C → D → E Master Plan
 
-> **Status:** Approved for execution · **Date:** 2026-09-19 · **Base:** Phase B (`a09f3a9`, frozen)
+> **Status:** EXECUTED — C, D and E are implemented, tested and committed (2026-09-20)
+> **Date:** 2026-09-19 · **Base:** Phase B (`a09f3a9`, frozen)
+>
+> | Phase | Branch | Commit | Suites |
+> | :-- | :-- | :-- | :-- |
+> | C — operating loop | `phase-c-operating-loop` | `5510c39` | operating-loop 47/0 |
+> | D — evidence intelligence | `phase-d-evidence` | `6af7392` | evidence-intelligence 35/0 |
+> | E — bounded jobs | `phase-e-jobs` | `e5417c5` | jobs 30/0 |
+>
+> Root 776/0 · os 1085/0 · typecheck, lint, build clean · migration rehearsal passes · production untouched.
+> One deviation from the plan, recorded in ADR-028's commit: Phase C also fixed a contact-masking defect found during
+> implementation (core's research-task text quoted the lead's own phone/email to anyone with `lead.view`).
 > **Owner:** Dev Jaiswal (Kachmo Studios) · **Architect:** Claude Opus
 
 ## Executive Summary
