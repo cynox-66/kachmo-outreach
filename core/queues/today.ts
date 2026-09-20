@@ -23,7 +23,9 @@ export const TODAY_KINDS = [
   'WHATSAPP_TO_SEND',
   'CALL_READY',
   'WHATSAPP_TO_APPROVE',
+  'EVIDENCE_CONTRADICTION',
   'CANDIDATE_REVIEW',
+  'EVIDENCE_RECHECK',
   'EVIDENCE_REVIEW',
   'RESEARCH',
 ] as const;
@@ -57,12 +59,18 @@ export interface CandidateToReview {
   createdOn: string;
 }
 
-/** A retrieved source waiting for a human to check it against its claim (read by the caller from its store). */
+/**
+ * A claim whose evidence needs a person (read by the caller from its store):
+ *   RETRIEVED       the page was fetched and nobody has checked it against the claim yet
+ *   SOURCE_CHANGED  the page changed after someone checked it, so the check no longer describes it (ADR-031)
+ *   CONTRADICTED    a person recorded that the source contradicts the claim — the lead record may be wrong
+ */
 export interface EvidenceToReview {
   evidenceId: string;
   leadId: string;
   field: string;
   fetchedOn: string;
+  state?: 'RETRIEVED' | 'SOURCE_CHANGED' | 'CONTRADICTED';
 }
 
 export interface TodayInput {
@@ -158,7 +166,14 @@ export function buildTodayList(input: TodayInput): TodayItem[] {
   for (const e of input.evidence ?? []) {
     const l = byId.get(e.leadId);
     if (!l) continue;
-    items.push({ ...base('EVIDENCE_REVIEW', l, l.target_number, ownerOf(l, 'DEV'), null, [`claim: ${e.field}`, `source retrieved: ${e.fetchedOn}`, 'level: RETRIEVED — not yet checked by a person']), ref: e.evidenceId });
+    const kind: TodayKind = e.state === 'CONTRADICTED' ? 'EVIDENCE_CONTRADICTION' : e.state === 'SOURCE_CHANGED' ? 'EVIDENCE_RECHECK' : 'EVIDENCE_REVIEW';
+    const why =
+      e.state === 'CONTRADICTED'
+        ? [`claim: ${e.field}`, 'a person recorded that the source contradicts this claim', 'correct the lead record, or reject the claim']
+        : e.state === 'SOURCE_CHANGED'
+          ? [`claim: ${e.field}`, `source re-fetched ${e.fetchedOn} and its content changed`, 'the earlier check no longer describes the page']
+          : [`claim: ${e.field}`, `source retrieved: ${e.fetchedOn}`, 'level: RETRIEVED — not yet checked by a person'];
+    items.push({ ...base(kind, l, l.target_number, ownerOf(l, 'DEV'), null, why), ref: e.evidenceId });
   }
 
   // Research: the top of core's research queue (already ordered, already excludes blocked and disqualified leads).

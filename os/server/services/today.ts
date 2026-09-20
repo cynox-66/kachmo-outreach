@@ -53,6 +53,8 @@ const PERMISSION_FOR: Record<TodayKind, Parameters<Actor['permissions']['has']>[
   REPLY_WAITING: 'outreach.email',
   EMAIL_FOLLOW_UP_DUE: 'outreach.email',
   POSITIVE_NO_MEETING: 'pipeline.update',
+  EVIDENCE_CONTRADICTION: 'lead.edit',
+  EVIDENCE_RECHECK: 'evidence.review',
   FOLLOW_UP_DUE: 'lead.view',
   WHATSAPP_TO_SEND: 'outreach.whatsapp',
   WHATSAPP_TO_APPROVE: 'outreach.whatsapp',
@@ -81,13 +83,44 @@ export async function getToday(actor: Actor, opts: { mine?: boolean; snapshot?: 
       candidates = rows.map(r => ({ id: r.id, company: r.company ?? '(unnamed candidate)', status: r.status, createdOn: r.createdAt.toISOString().slice(0, 10) }));
     }
     if (actor.permissions.has('evidence.review') && actor.permissions.has('lead.view_contacts')) {
+      // Every claim whose evidence has been fetched: unreviewed ones need a first check, reviewed ones need a
+      // re-check when the page has changed since (ADR-031), and contradictions need the lead record corrected.
       const rows = await db
-        .select({ id: schema.leadEvidence.id, leadId: schema.leadEvidence.leadId, field: schema.leadEvidence.field, fetchedAt: schema.evidenceRetrieval.fetchedAt })
+        .select({
+          id: schema.leadEvidence.id,
+          leadId: schema.leadEvidence.leadId,
+          field: schema.leadEvidence.field,
+          url: schema.leadEvidence.sourceUrl,
+          reviewStatus: schema.leadEvidence.reviewStatus,
+          contradicts: schema.leadEvidence.contradictsEvidenceId,
+          retrievalId: schema.leadEvidence.retrievalId,
+          sha: schema.evidenceRetrieval.contentSha256,
+          fetchedAt: schema.evidenceRetrieval.fetchedAt,
+        })
         .from(schema.leadEvidence)
         .innerJoin(schema.evidenceRetrieval, eq(schema.evidenceRetrieval.id, schema.leadEvidence.retrievalId))
-        .where(and(isNotNull(schema.leadEvidence.retrievalId), eq(schema.leadEvidence.reviewStatus, 'UNREVIEWED'), eq(schema.evidenceRetrieval.outcome, 'OK')))
-        .limit(100);
-      evidence = rows.map(r => ({ evidenceId: r.id, leadId: r.leadId, field: r.field, fetchedOn: r.fetchedAt.toISOString().slice(0, 10) }));
+        .where(and(isNotNull(schema.leadEvidence.retrievalId), eq(schema.evidenceRetrieval.outcome, 'OK')))
+        .limit(300);
+      const urls = [...new Set(rows.map(r => r.url).filter((u): u is string => !!u))];
+      const latest = urls.length
+        ? await db
+            .select({ id: schema.evidenceRetrieval.id, url: schema.evidenceRetrieval.requestedUrl, sha: schema.evidenceRetrieval.contentSha256, fetchedAt: schema.evidenceRetrieval.fetchedAt })
+            .from(schema.evidenceRetrieval)
+            .where(and(inArray(schema.evidenceRetrieval.requestedUrl, urls), eq(schema.evidenceRetrieval.outcome, 'OK')))
+            .orderBy(desc(schema.evidenceRetrieval.fetchedAt))
+        : [];
+      evidence = rows.flatMap(r => {
+        const newest = latest.find(x => x.url === r.url);
+        const state: 'RETRIEVED' | 'SOURCE_CHANGED' | 'CONTRADICTED' | null = r.contradicts
+          ? 'CONTRADICTED'
+          : r.reviewStatus === 'UNREVIEWED'
+            ? 'RETRIEVED'
+            : newest && newest.id !== r.retrievalId && newest.sha !== r.sha
+              ? 'SOURCE_CHANGED'
+              : null;
+        if (!state) return [];
+        return [{ evidenceId: r.id, leadId: r.leadId, field: r.field, fetchedOn: (newest?.fetchedAt ?? r.fetchedAt).toISOString().slice(0, 10), state }];
+      });
     }
   }
 

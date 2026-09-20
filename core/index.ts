@@ -21,6 +21,7 @@ export * from './research/candidate.js';
 export * from './research/extraction.js';
 export * from './research/prompt.js';
 export * from './research/inventory.js';
+export * from './research/coverage.js';
 export * from './queues/calls.js';
 export * from './queues/whatsapp.js';
 export * from './queues/work-rules.js';

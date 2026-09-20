@@ -8,6 +8,7 @@ import { DetailDisclosure } from '../../components/DetailDisclosure';
 import { getServer } from '@/server/auth/instance';
 import { writeStatusFor } from '@/server/services/write-status';
 import { evidenceForLead } from '@/server/evidence/store';
+import { coverageForLead } from '@/server/evidence/coverage';
 import { getLeadTimeline } from '@/server/services/timeline';
 import { recordFieldForTask } from '@/server/services/research-queue';
 import { CallLogForm, PipelineForm, ResearchRecordForm, SuppressionForm, WritesUnavailable } from '../../components/LeadActions';
@@ -37,6 +38,11 @@ export default async function LeadDetailPage({ params, searchParams }: { params:
   // Claim-level evidence exists only in Postgres (after cutover); `version` is set exactly then.
   const evidence = d.version !== null ? await evidenceForLead(getServer().db, lead.lead_id) : [];
   const timeline = d.version !== null ? await getLeadTimeline(lead) : [];
+  // How far each gate's source has actually been taken (Phase D, ADR-031). Measurement only: the gate outcomes above
+  // are Methodology v1.0's, unchanged.
+  const cover = d.version !== null ? await coverageForLead(getServer().db, lead, d.qualificationGates) : null;
+  const coverageOf = (gate: string) => cover?.coverage.find(c => c.gate === gate) ?? null;
+  const LEVEL_TONE: Record<string, string> = { SUPPORTED: 'ok', RETRIEVED: 'warn', CONTRADICTED: 'bad', URL_SHAPED: 'warn', CLAIMED: 'warn', NONE: '' };
   const can = (p: Parameters<typeof actor.permissions.has>[0]) => actor.permissions.has(p);
   const canSeeContacts = can('lead.view_contacts');
   const canReview = can('evidence.review') && canSeeContacts;
@@ -242,11 +248,28 @@ export default async function LeadDetailPage({ params, searchParams }: { params:
                 </span>
                 <span>
                   <span className={`badge ${BADGE[g.outcome] ?? ''}`}>{g.outcome}</span>{' '}
+                  {(() => {
+                    const c = coverageOf(g.gate);
+                    if (!c || !c.fields.length) return null;
+                    return (
+                      <span className={`badge ${c.contradicted ? 'bad' : LEVEL_TONE[c.level] ?? ''}`} title={`Evidence recorded for ${c.fields.join(', ')}`}>
+                        evidence: {c.contradicted ? 'CONTRADICTED' : c.level}
+                      </span>
+                    );
+                  })()}{' '}
                   <span className="small muted">{g.meaning}</span>
                 </span>
               </div>
             ))}
           </div>
+          {cover ? (
+            <p className="small muted" style={{ marginTop: 10 }}>
+              Evidence coverage: {cover.summary.checked} of {cover.summary.measurable} gates rest on a source a person has checked
+              {cover.summary.retrieved ? `, ${cover.summary.retrieved} on a page that was fetched but not yet read` : ''}
+              {cover.summary.contradicted ? `, ${cover.summary.contradicted} contradicted` : ''}. The gate outcomes themselves are
+              Methodology v1.0&rsquo;s and are not affected by this measurement.
+            </p>
+          ) : null}
           {d.reasons.length ? (
             <>
               <p className="small muted" style={{ margin: '12px 0 4px' }}>
@@ -400,7 +423,13 @@ export default async function LeadDetailPage({ params, searchParams }: { params:
                           ) : (
                             <span className="muted">no URL</span>
                           )}
-                          {e.retrieval ? <div className="muted">fetched {e.retrieval.fetchedAt.slice(0, 10)} · HTTP {e.retrieval.httpStatus ?? '—'}</div> : null}
+                          {e.retrieval ? (
+                            <div className="muted">
+                              fetched {e.retrieval.fetchedAt.slice(0, 10)} · HTTP {e.retrieval.httpStatus ?? '—'}
+                              {e.freshness === 'SOURCE_CHANGED' ? <> · <span className="badge bad">source changed since it was checked</span></> : null}
+                              {e.freshness === 'STALE' ? <> · <span className="badge warn">stale ({e.ageDays}d)</span></> : null}
+                            </div>
+                          ) : null}
                           {!e.retrieval && e.failedAttempts ? <div className="muted">{e.failedAttempts} failed fetch attempt(s)</div> : null}
                         </td>
                         <td className="small">

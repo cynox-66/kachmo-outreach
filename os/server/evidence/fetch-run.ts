@@ -13,12 +13,13 @@
  *   - Nothing here touches a lead, a gate, a score, suppression or any outreach path.
  */
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import * as schema from '../db/schema/index';
 import { recordAudit } from '../audit/audit';
 import { assertHumanLabel } from '../leads/actor-binding';
 import type { Db } from '../leads/locks';
 import { fetchSource, USER_AGENT, type FetchOptions, type FetchOutcome } from './fetch';
+import { FRESHNESS_DAYS } from './store';
 
 export const MAX_ATTEMPTS = 3;
 /** Cooldown after the n-th failure (1-based). */
@@ -30,7 +31,7 @@ export interface FetchCandidate {
   targetNumbers: string[];
   failures: number;
   /** Why this URL is not being fetched now, or null when it will be. */
-  skip: 'COOLDOWN' | 'NEEDS_HUMAN' | 'ALREADY_RETRIEVED' | null;
+  skip: 'COOLDOWN' | 'NEEDS_HUMAN' | 'ALREADY_RETRIEVED' | 'FRESH_ENOUGH' | null;
   reusableRetrievalId: string | null;
 }
 
@@ -39,9 +40,26 @@ export interface FetchPlan {
   toFetch: FetchCandidate[];
 }
 
-export async function planFetch(db: Db, opts: { targetNumber?: string | null; limit?: number; now?: Date } = {}): Promise<FetchPlan> {
+/**
+ * REFRESH (Phase D, ADR-031): a source that was fetched long ago may have changed. In refresh mode the plan is the
+ * opposite of the first pass — URLs whose newest SUCCESSFUL retrieval is older than the freshness window, whether or
+ * not a person has reviewed them. A re-fetch that comes back with different bytes marks any existing review
+ * SOURCE_CHANGED (derived in the store), which puts the claim back in front of a person.
+ */
+export interface FetchOptionsForPlan {
+  targetNumber?: string | null;
+  limit?: number;
+  now?: Date;
+  mode?: 'NEW' | 'REFRESH';
+  /** Refresh sources whose newest successful retrieval is older than this many days. */
+  freshnessDays?: number;
+}
+
+export async function planFetch(db: Db, opts: FetchOptionsForPlan = {}): Promise<FetchPlan> {
   const now = (opts.now ?? new Date()).getTime();
-  const where = [isNull(schema.leadEvidence.retrievalId), eq(schema.leadEvidence.reviewStatus, 'UNREVIEWED'), isNull(schema.leadEvidence.contradictsEvidenceId)];
+  const mode = opts.mode ?? 'NEW';
+  // NEW: claims nobody has fetched yet. REFRESH: claims whose source was fetched, to check it still says the same.
+  const where = mode === 'REFRESH' ? [isNotNull(schema.leadEvidence.retrievalId)] : [isNull(schema.leadEvidence.retrievalId), eq(schema.leadEvidence.reviewStatus, 'UNREVIEWED'), isNull(schema.leadEvidence.contradictsEvidenceId)];
   const rows = await db
     .select({ id: schema.leadEvidence.id, url: schema.leadEvidence.sourceUrl, leadId: schema.leadEvidence.leadId, targetNumber: schema.lead.targetNumber })
     .from(schema.leadEvidence)
@@ -66,9 +84,15 @@ export async function planFetch(db: Db, opts: { targetNumber?: string | null; li
         .orderBy(desc(schema.evidenceRetrieval.fetchedAt))
     : [];
 
+  const freshnessMs = (opts.freshnessDays ?? FRESHNESS_DAYS) * 86_400_000;
   for (const c of byUrl.values()) {
     const attempts = history.filter(h => h.url === c.url);
     const ok = attempts.find(h => h.outcome === 'OK');
+    if (mode === 'REFRESH') {
+      // Fetch again only when the newest successful retrieval is older than the window; failures do not reset it.
+      if (!ok || now - ok.at.getTime() < freshnessMs) c.skip = 'FRESH_ENOUGH';
+      continue;
+    }
     if (ok) {
       // Another claim already got this page: link to it rather than fetching the same URL again.
       c.skip = 'ALREADY_RETRIEVED';
@@ -97,7 +121,7 @@ export interface FetchRunResult {
  */
 export async function runFetch(
   db: Db,
-  opts: { actor: string; targetNumber?: string | null; limit?: number; now?: Date; fetchOptions?: FetchOptions; spacingMs?: number; sleep?: (ms: number) => Promise<void> }
+  opts: FetchOptionsForPlan & { actor: string; fetchOptions?: FetchOptions; spacingMs?: number; sleep?: (ms: number) => Promise<void> }
 ): Promise<FetchRunResult> {
   assertHumanLabel(opts.actor);
   const actor = opts.actor.trim();
@@ -110,7 +134,7 @@ export async function runFetch(
   const byOutcome: Partial<Record<FetchOutcome, number>> = {};
   let linked = 0;
 
-  // Reuse existing successful retrievals first: no network.
+  // Reuse existing successful retrievals first: no network. (Never in refresh mode — the point there is to re-fetch.)
   for (const c of plan.candidates.filter(x => x.skip === 'ALREADY_RETRIEVED' && x.reusableRetrievalId)) {
     linked += await linkRetrieval(db, c.evidenceIds, c.reusableRetrievalId!);
   }
@@ -157,6 +181,7 @@ export async function runFetch(
     target: { type: 'database', id: null },
     metadata: {
       runId,
+      mode: opts.mode ?? 'NEW',
       planned: plan.toFetch.length,
       byOutcome,
       linked,
@@ -164,6 +189,7 @@ export async function runFetch(
         cooldown: plan.candidates.filter(c => c.skip === 'COOLDOWN').length,
         needsHuman: plan.candidates.filter(c => c.skip === 'NEEDS_HUMAN').length,
         reused: plan.candidates.filter(c => c.skip === 'ALREADY_RETRIEVED').length,
+        freshEnough: plan.candidates.filter(c => c.skip === 'FRESH_ENOUGH').length,
       },
       // Hosts only — a URL's path and query can carry identifiers, and the audit log is not the place for them.
       hosts: [...new Set(plan.toFetch.map(c => {
@@ -197,20 +223,31 @@ if (process.argv[1] && /server[\\/]evidence[\\/]fetch-run\.ts$/.test(process.arg
   const apply = process.argv.includes('--apply');
   const limit = Number(arg('limit') ?? 20);
   const targetNumber = arg('lead') ?? null;
+  const refresh = process.argv.some(a => a === '--refresh' || a.startsWith('--refresh='));
+  const mode = refresh ? ('REFRESH' as const) : ('NEW' as const);
+  const freshnessDays = Number(arg('refresh') ?? FRESHNESS_DAYS);
   const { db, close, label } = openOperatorDatabase({ writes: apply });
   (async () => {
     console.log(`\n🔎 Evidence fetch — target ${label}`);
-    const plan = await planFetch(db, { targetNumber, limit });
+    const plan = await planFetch(db, { targetNumber, limit, mode, freshnessDays });
     const count = (s: FetchCandidate['skip']) => plan.candidates.filter(c => c.skip === s).length;
-    console.log(`   ${plan.candidates.length} source URL(s) awaiting retrieval · ${plan.toFetch.length} to fetch now · ${count('COOLDOWN')} cooling down · ${count('NEEDS_HUMAN')} need a human · ${count('ALREADY_RETRIEVED')} already retrieved (will link)`);
+    console.log(
+      mode === 'REFRESH'
+        ? `   refresh (older than ${freshnessDays}d): ${plan.candidates.length} retrieved source(s) · ${plan.toFetch.length} to re-fetch now · ${count('FRESH_ENOUGH')} still fresh`
+        : `   ${plan.candidates.length} source URL(s) awaiting retrieval · ${plan.toFetch.length} to fetch now · ${count('COOLDOWN')} cooling down · ${count('NEEDS_HUMAN')} need a human · ${count('ALREADY_RETRIEVED')} already retrieved (will link)`
+    );
     for (const c of plan.toFetch) console.log(`   ${c.targetNumbers.join(',').padEnd(8)} ${c.url}${c.failures ? `  (attempt ${c.failures + 1})` : ''}`);
     if (!apply) {
       console.log('\n   DRY RUN — no network, nothing written. Re-run with --apply --actor="<your name>".');
       return 0;
     }
-    const r = await runFetch(db, { actor: arg('actor') ?? '', targetNumber, limit });
+    const r = await runFetch(db, { actor: arg('actor') ?? '', targetNumber, limit, mode, freshnessDays });
     console.log(`\n   ✅ run ${r.runId}: ${r.fetched} fetched, ${r.linked} claim(s) now RETRIEVED — ${JSON.stringify(r.byOutcome)}`);
-    console.log('   Nothing was reviewed: a person must still confirm each page states its claim (lead page → Evidence).');
+    console.log(
+      mode === 'REFRESH'
+        ? '   Any page that came back different marks its review SOURCE_CHANGED: the claim goes back to a person.'
+        : '   Nothing was reviewed: a person must still confirm each page states its claim (lead page → Evidence).'
+    );
     return 0;
   })()
     .then(code => close().then(() => process.exit(code)))

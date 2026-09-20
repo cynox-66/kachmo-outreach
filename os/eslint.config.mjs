@@ -24,7 +24,7 @@ export default defineConfig([
     // Phase B parity suites replay the legacy CLI's own golden scenario against the Postgres write path, so they
     // read the golden ORACLES (pinned dataset, scripted scenario, the CLI's argument parser) — never domain logic.
     // Narrow on purpose: only these two test files, and only these three modules; the mail ban still applies.
-    files: ['tests/lead-writes.ts', 'tests/evidence.ts', 'tests/concurrency.ts', 'tests/operating-loop.ts'],
+    files: ['tests/lead-writes.ts', 'tests/evidence.ts', 'tests/concurrency.ts', 'tests/operating-loop.ts', 'tests/evidence-intelligence.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

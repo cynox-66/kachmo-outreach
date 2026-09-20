@@ -29,7 +29,9 @@ const KIND_PRESENTATION: Record<string, { label: string; action: string; severit
   WHATSAPP_TO_SEND: { label: 'WhatsApp approved — send it', action: 'Open WhatsApp', severity: 'warn' },
   CALL_READY: { label: 'Ready to call', action: 'Open call card', severity: 'info' },
   WHATSAPP_TO_APPROVE: { label: 'WhatsApp draft to review', action: 'Review draft', severity: 'info' },
+  EVIDENCE_CONTRADICTION: { label: 'Source contradicts the record', action: 'Correct the lead', severity: 'critical' },
   CANDIDATE_REVIEW: { label: 'Research candidate to review', action: 'Review candidate', severity: 'info' },
+  EVIDENCE_RECHECK: { label: 'Source changed since it was checked', action: 'Re-check evidence', severity: 'warn' },
   EVIDENCE_REVIEW: { label: 'Source to check', action: 'Check evidence', severity: 'info' },
   RESEARCH: { label: 'Research to unblock', action: 'Record research', severity: 'normal' },
 };

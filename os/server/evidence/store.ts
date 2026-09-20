@@ -113,6 +113,19 @@ export async function insertEvidence(tx: Db, rows: NewEvidence[]): Promise<numbe
 
 // ── Reading: the derived level ───────────────────────────────────────────────
 
+/**
+ * How current the source behind a claim is (Phase D, ADR-031). Derived from the retrieval rows, never stored:
+ *   FRESH           retrieved recently enough to rely on
+ *   STALE           the newest successful retrieval is older than the freshness window
+ *   SOURCE_CHANGED  the page has been re-fetched since a person checked it, and its content hash differs — the
+ *                   review no longer describes what the page says, so the claim needs re-reading
+ *   UNRETRIEVED     nothing has been fetched yet
+ */
+export type Freshness = 'FRESH' | 'STALE' | 'SOURCE_CHANGED' | 'UNRETRIEVED';
+
+/** How old a successful retrieval may be before a claim is shown as stale. */
+export const FRESHNESS_DAYS = 30;
+
 export interface EvidenceView {
   id: string;
   field: string;
@@ -130,6 +143,9 @@ export interface EvidenceView {
   retrieval: { id: string; outcome: string; fetchedAt: string; httpStatus: number | null; finalUrl: string | null } | null;
   /** Failed fetch attempts for this URL, newest first — the operator sees why a source is still unproven. */
   failedAttempts: number;
+  freshness: Freshness;
+  /** Days since the newest successful retrieval of this URL, or null when there is none. */
+  ageDays: number | null;
   contradictsEvidenceId: string | null;
   contradictedBy: string[];
   recordedBy: string | null;
@@ -159,18 +175,31 @@ export function derivedLevel(row: EvidenceRow, retrieval: RetrievalRow | null): 
   });
 }
 
-export async function evidenceForLead(db: Db, leadId: string): Promise<EvidenceView[]> {
+/** The freshness of one claim, from its linked retrieval and the newest successful retrieval of the same URL. */
+export function freshnessOf(row: EvidenceRow, linked: RetrievalRow | null, latestOk: RetrievalRow | null, now = new Date(), freshnessDays = FRESHNESS_DAYS): { freshness: Freshness; ageDays: number | null } {
+  if (!linked || linked.outcome !== 'OK' || !latestOk) return { freshness: 'UNRETRIEVED', ageDays: null };
+  const ageDays = Math.floor((now.getTime() - latestOk.fetchedAt.getTime()) / 86_400_000);
+  // A re-fetch that came back different invalidates a human review of the older content.
+  if (row.reviewStatus !== 'UNREVIEWED' && latestOk.id !== linked.id && latestOk.contentSha256 !== linked.contentSha256) {
+    return { freshness: 'SOURCE_CHANGED', ageDays };
+  }
+  return { freshness: ageDays > freshnessDays ? 'STALE' : 'FRESH', ageDays };
+}
+
+export async function evidenceForLead(db: Db, leadId: string, now = new Date()): Promise<EvidenceView[]> {
   const rows = await db.select().from(schema.leadEvidence).where(eq(schema.leadEvidence.leadId, leadId)).orderBy(asc(schema.leadEvidence.field), asc(schema.leadEvidence.recordedAt));
   const retrievalIds = rows.map(r => r.retrievalId).filter((x): x is string => !!x);
   const retrievals = retrievalIds.length ? await db.select().from(schema.evidenceRetrieval).where(inArray(schema.evidenceRetrieval.id, retrievalIds)) : [];
   const urls = [...new Set(rows.map(r => r.sourceUrl).filter((x): x is string => !!x))];
   const attempts = urls.length
-    ? await db.select({ url: schema.evidenceRetrieval.requestedUrl, outcome: schema.evidenceRetrieval.outcome }).from(schema.evidenceRetrieval).where(inArray(schema.evidenceRetrieval.requestedUrl, urls)).orderBy(desc(schema.evidenceRetrieval.fetchedAt))
+    ? await db.select().from(schema.evidenceRetrieval).where(inArray(schema.evidenceRetrieval.requestedUrl, urls)).orderBy(desc(schema.evidenceRetrieval.fetchedAt))
     : [];
   const byId = new Map(retrievals.map(r => [r.id, r]));
   return rows.map(r => {
     const retrieval = r.retrievalId ? byId.get(r.retrievalId) ?? null : null;
+    const latestOk = attempts.find(a => a.requestedUrl === r.sourceUrl && a.outcome === 'OK') ?? null;
     const d = derivedLevel(r, retrieval);
+    const f = freshnessOf(r, retrieval, latestOk, now);
     return {
       id: r.id,
       field: r.field,
@@ -186,7 +215,9 @@ export async function evidenceForLead(db: Db, leadId: string): Promise<EvidenceV
       reviewNote: r.reviewNote,
       supportingExcerpt: r.supportingExcerpt,
       retrieval: retrieval ? { id: retrieval.id, outcome: retrieval.outcome, fetchedAt: retrieval.fetchedAt.toISOString(), httpStatus: retrieval.httpStatus, finalUrl: retrieval.finalUrl } : null,
-      failedAttempts: attempts.filter(a => a.url === r.sourceUrl && a.outcome !== 'OK').length,
+      failedAttempts: attempts.filter(a => a.requestedUrl === r.sourceUrl && a.outcome !== 'OK').length,
+      freshness: f.freshness,
+      ageDays: f.ageDays,
       contradictsEvidenceId: r.contradictsEvidenceId,
       contradictedBy: rows.filter(x => x.contradictsEvidenceId === r.id).map(x => x.id),
       recordedBy: r.recordedByLabel,

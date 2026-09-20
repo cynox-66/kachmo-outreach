@@ -1,5 +1,5 @@
 import 'server-only';
-import type { KachmoLead } from '@kachmo/core/leads/schema.js';
+import type { QualificationGates, KachmoLead } from '@kachmo/core/leads/schema.js';
 import { evaluateLeadGates } from '@kachmo/core/qualification/gates.js';
 import { calculateLeadScores } from '@kachmo/core/scoring/score.js';
 import { outreachBlock, checkSuppression } from '@kachmo/core/suppression/match.js';
@@ -254,6 +254,8 @@ export interface LeadDetail {
   row: LeadRow;
   contacts: LeadContacts;
   gates: GateExplanation[];
+  /** The gate outcomes as core produced them, for callers that measure against them (evidence coverage). */
+  qualificationGates: QualificationGates;
   missingIntelligence: string[];
   reasons: string[];
   scores: ReturnType<typeof calculateLeadScores>;
@@ -319,6 +321,7 @@ export async function getLeadDetail(identifier: string, actor: Actor, snapshot?:
     drift,
     row: toRow(lead, snap),
     contacts: contactsFor(lead, actor),
+    qualificationGates: q.gates,
     gates: gateEntries.map(([gate, outcome]) => ({
       gate,
       label: GATE_LABELS[gate] ?? gate,
