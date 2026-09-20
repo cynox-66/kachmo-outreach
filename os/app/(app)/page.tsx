@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requirePermission, requireActor } from '@/server/auth/current-actor';
 import { getDashboard } from '@/server/services/dashboard';
+import { getToday } from '@/server/services/today';
 import { ActionCard } from './components/ActionCard';
 import { EmptyState } from './components/EmptyState';
 
@@ -19,13 +20,29 @@ export const dynamic = 'force-dynamic';
  * All metrics and actions are derived by core/ from canonical state.
  * No priority algorithm or scoring band is invented here.
  */
-export default async function DashboardPage() {
+/** What each kind of work item asks for, and the button that takes the operator there (ADR-028). */
+const KIND_PRESENTATION: Record<string, { label: string; action: string; severity: 'critical' | 'warn' | 'info' | 'normal' }> = {
+  REPLY_WAITING: { label: 'Reply waiting', action: 'Answer in Titan', severity: 'critical' },
+  POSITIVE_NO_MEETING: { label: 'Positive reply, no meeting', action: 'Book a meeting', severity: 'critical' },
+  FOLLOW_UP_DUE: { label: 'Follow-up due', action: 'Open lead', severity: 'warn' },
+  EMAIL_FOLLOW_UP_DUE: { label: 'Email follow-up due', action: 'Send in Titan', severity: 'warn' },
+  WHATSAPP_TO_SEND: { label: 'WhatsApp approved — send it', action: 'Open WhatsApp', severity: 'warn' },
+  CALL_READY: { label: 'Ready to call', action: 'Open call card', severity: 'info' },
+  WHATSAPP_TO_APPROVE: { label: 'WhatsApp draft to review', action: 'Review draft', severity: 'info' },
+  CANDIDATE_REVIEW: { label: 'Research candidate to review', action: 'Review candidate', severity: 'info' },
+  EVIDENCE_REVIEW: { label: 'Source to check', action: 'Check evidence', severity: 'info' },
+  RESEARCH: { label: 'Research to unblock', action: 'Record research', severity: 'normal' },
+};
+
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ who?: string }> }) {
   await requirePermission('lead.view');
   const actor = await requireActor();
-  const d = await getDashboard();
+  const { who } = await searchParams;
+  const mine = who !== 'all';
+  const [d, work] = await Promise.all([getDashboard(), getToday(actor, { mine })]);
 
-  // Compute total actionable count from real attention items and next actions due
-  const totalActionsCount = d.attention.reduce((acc, a) => acc + a.count, 0) + d.nextActions.length;
+  // Compute total actionable count from real attention items and today's work list
+  const totalActionsCount = d.attention.reduce((acc, a) => acc + a.count, 0) + work.items.length;
 
   return (
     <>
@@ -79,54 +96,52 @@ export default async function DashboardPage() {
         />
       )}
 
-      {/* ── SECTION 2: WORK DUE TODAY (Action Cards) ───────────────────────── */}
-      <h2>Work Due Today</h2>
+      {/* ── SECTION 2: TODAY'S WORK LIST (derived by core, ADR-028) ───────── */}
+      <h2 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <span>Work Due Today ({work.items.length})</span>
+        <span className="small muted font-normal">
+          {work.me ? (
+            mine ? (
+              <>Showing work owned by {work.me} · <Link href="/?who=all">show everyone&rsquo;s</Link></>
+            ) : (
+              <>Showing everyone&rsquo;s work · <Link href="/">show only {work.me}&rsquo;s</Link></>
+            )
+          ) : (
+            'Showing everyone’s work'
+          )}
+        </span>
+      </h2>
 
-      {d.nextActions.length === 0 ? (
+      {work.items.length === 0 ? (
         <EmptyState
-          title="No lead tasks due today."
-          description="All scheduled follow-ups and next actions are currently up to date."
+          title="Nothing is owed today."
+          description="No reply, follow-up, call, WhatsApp, review or research item is due."
           style={{ marginBottom: 24 }}
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          {d.nextActions.map(n => {
-            const isResearch = /research|decision-maker|contact route|verify/i.test(n.action);
-            const isContact = /draft|send|call|email|outreach/i.test(n.action);
-            const actionHref = isContact
-              ? /call/i.test(n.action)
-                ? '/calls'
-                : /email|draft/i.test(n.action)
-                  ? '/email'
-                  : `/leads/${n.targetNumber}`
-              : `/leads/${n.targetNumber}`;
-
-            const actionLabel = isContact
-              ? /call/i.test(n.action)
-                ? 'Call'
-                : /email|draft/i.test(n.action)
-                  ? 'Open email'
-                  : 'Open'
-              : isResearch
-                ? 'Research'
-                : 'Open';
-
+          {work.items.slice(0, 60).map(i => {
+            const p = KIND_PRESENTATION[i.kind];
             return (
               <ActionCard
-                key={n.targetNumber}
-                title={n.company}
-                targetNumber={n.targetNumber}
-                what={n.action}
-                owner={n.owner}
-                due={n.due}
-                statusBadge={n.priority}
-                actionHref={actionHref}
-                actionLabel={actionLabel}
-                secondaryHref={`/leads/${n.targetNumber}`}
-                secondaryLabel="View lead"
+                key={`${i.kind}-${i.ref ?? i.targetNumber}`}
+                title={i.company || '(unnamed)'}
+                targetNumber={i.targetNumber !== '—' ? i.targetNumber : undefined}
+                subtitle={p.label}
+                what={i.why.join(' · ')}
+                why={i.where === 'TITAN' ? 'Email is sent and recorded in Titan, not here.' : undefined}
+                owner={i.owner}
+                due={i.due}
+                statusBadge={i.overdue ? 'OVERDUE' : i.priority}
+                actionHref={i.href}
+                actionLabel={p.action}
+                secondaryHref={i.leadId ? `/leads/${i.targetNumber}` : undefined}
+                secondaryLabel={i.leadId ? 'View lead' : undefined}
+                severity={i.overdue ? 'critical' : p.severity}
               />
             );
           })}
+          {work.items.length > 60 ? <p className="small muted">…and {work.items.length - 60} more lower in the order.</p> : null}
         </div>
       )}
 

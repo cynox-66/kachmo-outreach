@@ -8,6 +8,8 @@ import { DetailDisclosure } from '../../components/DetailDisclosure';
 import { getServer } from '@/server/auth/instance';
 import { writeStatusFor } from '@/server/services/write-status';
 import { evidenceForLead } from '@/server/evidence/store';
+import { getLeadTimeline } from '@/server/services/timeline';
+import { recordFieldForTask } from '@/server/services/research-queue';
 import { CallLogForm, PipelineForm, ResearchRecordForm, SuppressionForm, WritesUnavailable } from '../../components/LeadActions';
 import { EvidenceReviewForm } from '../../components/EvidenceReview';
 
@@ -23,9 +25,10 @@ const BADGE: Record<string, string> = { PASS: 'ok', UNVERIFIED: 'warn', PENDING:
  *
  * All values are computed by core/ from the canonical record.
  */
-export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LeadDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ record?: string }> }) {
   const actor = await requirePermission('lead.view');
   const { id } = await params;
+  const { record: recordField } = await searchParams;
   const d = await getLeadDetail(id, actor);
   if (!d) notFound();
 
@@ -33,6 +36,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const writes = await writeStatusFor(actor);
   // Claim-level evidence exists only in Postgres (after cutover); `version` is set exactly then.
   const evidence = d.version !== null ? await evidenceForLead(getServer().db, lead.lead_id) : [];
+  const timeline = d.version !== null ? await getLeadTimeline(lead) : [];
   const can = (p: Parameters<typeof actor.permissions.has>[0]) => actor.permissions.has(p);
   const canSeeContacts = can('lead.view_contacts');
   const canReview = can('evidence.review') && canSeeContacts;
@@ -182,7 +186,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       {/* Record what happened (Phase B) */}
-      <div className="panel">
+      <div className="panel" id="record">
         <h2 style={{ margin: '0 0 8px', fontSize: '14px' }}>Record What Happened</h2>
         {version === null ? (
           <p className="small muted" style={{ margin: 0 }}>Before cutover, changes to this lead are recorded with the CLI.</p>
@@ -193,7 +197,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             {can('lead.edit') ? (
               <section>
                 <p className="small muted" style={{ margin: '0 0 6px', fontWeight: 600 }}>Research you found</p>
-                <ResearchRecordForm leadId={lead.lead_id} version={version} canSeeContacts={canSeeContacts} canApprove={can('lead.approve')} />
+                <ResearchRecordForm leadId={lead.lead_id} version={version} canSeeContacts={canSeeContacts} canApprove={can('lead.approve')} initialField={recordField} />
               </section>
             ) : null}
             {can('outreach.call') && lead.decision_maker_phone ? (
@@ -443,7 +447,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                   <th>Field</th>
                   <th>What to find</th>
                   <th>Evidence needed</th>
-                  <th>Command</th>
+                  <th>Record it</th>
                 </tr>
               </thead>
               <tbody>
@@ -453,7 +457,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                     <td className="wrap">{t.task}</td>
                     <td className="wrap small muted">{t.evidenceNeeded}</td>
                     <td className="wrap small">
-                      <code>{t.recordWith}</code>
+                      {version !== null && can('lead.edit') && recordFieldForTask(t.field) ? (
+                        <Link href={`/leads/${row.targetNumber}?record=${recordFieldForTask(t.field)}#record`}>Record {presentField(t.field)} →</Link>
+                      ) : version !== null ? (
+                        <span className="muted">record it on this page</span>
+                      ) : (
+                        <code>{t.recordWith}</code>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -533,6 +543,44 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : null}
+
+      {/* History (Phase C, ADR-029) */}
+      {version !== null ? (
+        <div>
+          <h2>History ({timeline.length})</h2>
+          <div className="panel">
+            {timeline.length ? (
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>What</th>
+                      <th>Who</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {timeline.map((e, i) => (
+                      <tr key={`${e.at}-${e.kind}-${i}`}>
+                        <td className="small" style={{ whiteSpace: 'nowrap' }}>{e.at.slice(0, 16).replace('T', ' ')}</td>
+                        <td className="small"><span className="badge">{e.kind}</span></td>
+                        <td className="small">{e.actor}</td>
+                        <td className="wrap small muted">{e.details.join(' · ') || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="empty">Nothing recorded against this lead yet.</p>
+            )}
+            <p className="small muted" style={{ marginTop: 8 }}>
+              Domain events, audited actions and call attempts, newest first. Contact values are never written to either log.
+            </p>
           </div>
         </div>
       ) : null}

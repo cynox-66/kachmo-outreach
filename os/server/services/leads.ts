@@ -10,7 +10,7 @@ import { findDuplicates } from '@kachmo/core/leads/dedupe.js';
 import { archetypeById, verticalFromLabel } from '@kachmo/core/config/taxonomy.js';
 import { priorityLabel } from '@kachmo/core/util/text.js';
 import type { Actor } from '../authz/authorize';
-import { contactsFor, type LeadContacts } from './contacts';
+import { contactsFor, scrubContactValues, type LeadContacts } from './contacts';
 import { loadCanonical, ledgerStatusOf, type CanonicalSnapshot } from '../repo/canonical';
 import { presentedNextAction, presentedStage } from './ledger-view';
 
@@ -338,7 +338,11 @@ export async function getLeadDetail(identifier: string, actor: Actor, snapshot?:
     researchTasks: q.missing
       .map(f => taskFor(f, lead))
       .filter((t): t is NonNullable<typeof t> => t !== null)
-      .map(t => ({ field: t.field, task: t.task, evidenceNeeded: t.evidence_needed, recordWith: t.record_with })),
+      // core quotes the record in its instructions; an actor who may not see a contact value must not read it here.
+      .map(t => {
+        const scrub = (text: string) => (actor.permissions.has('lead.view_contacts') ? text : scrubContactValues(text, lead));
+        return { field: t.field, task: scrub(t.task), evidenceNeeded: scrub(t.evidence_needed), recordWith: scrub(t.record_with) };
+      }),
     emailLedger: {
       status: ledger,
       batch: trackerRow?.batch ?? null,

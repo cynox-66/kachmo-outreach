@@ -15,6 +15,7 @@ const PRIMARY_NAV: Array<{ href: string; label: string; permission: Permission }
   { href: '/', label: 'Today', permission: 'lead.view' },
   { href: '/leads', label: 'Leads', permission: 'lead.view' },
   { href: '/research', label: 'Research', permission: 'research.create' },
+  { href: '/research/queue', label: 'Research queue', permission: 'lead.view' },
   { href: '/pipeline', label: 'Pipeline', permission: 'pipeline.update' },
 ];
 

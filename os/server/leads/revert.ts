@@ -78,6 +78,11 @@ export async function runRevert(
   const ledger = opts.ledger ?? ledgerLookup(readTitanState().tracker);
   const plan = await planRevert(db, { targetNumber: opts.targetNumber, toVersion: opts.toVersion, now: clock().toISOString(), ledger });
   if (plan.refusal) return { plan, applied: false, version: null, message: plan.refusal };
+  // Derived fields follow their inputs, so restoring a version whose INPUTS are already current changes nothing.
+  // Writing a version that changes no field would add an empty revision and an audit row that record nothing.
+  if (!plan.fieldsChanged.length) {
+    return { plan: { ...plan, refusal: `Nothing to revert: ${plan.targetNumber} already holds the content of version ${plan.toVersion}.` }, applied: false, version: null, message: `Nothing to revert: ${plan.targetNumber} already holds the content of version ${plan.toVersion}.` };
+  }
   if (!opts.apply) return { plan, applied: false, version: null, message: `DRY RUN — nothing written. To apply: --apply --confirm=${plan.digest} --actor="<your name>"` };
 
   const phase = resolveCutoverPhase(opts.env ?? process.env);
@@ -116,7 +121,7 @@ export async function runRevert(
 if (process.argv[1] && /server[\\/]leads[\\/]revert\.ts$/.test(process.argv[1])) {
   const { openOperatorDatabase } = await import('./operator-db');
   const arg = (k: string) => process.argv.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
-  const { db, close, label } = openOperatorDatabase();
+  const { db, close, label } = openOperatorDatabase({ writes: process.argv.includes('--apply') });
   (async () => {
     console.log(`\n⏪ Lead revert — target ${label}`);
     const r = await runRevert(db, { targetNumber: arg('lead') ?? '', toVersion: Number(arg('to-version')), apply: process.argv.includes('--apply'), confirm: arg('confirm'), actor: arg('actor') ?? '' });

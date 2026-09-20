@@ -23,6 +23,8 @@ export * from './research/prompt.js';
 export * from './research/inventory.js';
 export * from './queues/calls.js';
 export * from './queues/whatsapp.js';
+export * from './queues/work-rules.js';
+export * from './queues/today.js';
 export * from './email-ledger/tracker.js';
 export * from './email-ledger/queue-check.js';
 export * from './email-ledger/send-guard.js';

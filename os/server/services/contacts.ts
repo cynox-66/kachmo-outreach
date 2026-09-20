@@ -38,6 +38,28 @@ const PROVENANCE_NOTE: Record<ContactProvenance, string> = {
   INVALID: 'bounced or wrong number',
 };
 
+/**
+ * Removes a lead's own contact values from free text before it is shown to someone who may not see them.
+ *
+ * Core writes operator instructions that quote the record ("Find where +44 … is published"), and those strings are
+ * rendered on pages an INTERN or VIEWER can open. Masking the contact FIELDS while leaking the same value inside a
+ * sentence would defeat the whole boundary, so every surface that renders core's task text scrubs it here.
+ */
+export function scrubContactValues(text: string, lead: Pick<KachmoLead, 'decision_maker_email' | 'decision_maker_phone' | 'whatsapp_number' | 'decision_maker_whatsapp'>): string {
+  let out = text;
+  for (const [value, kind] of [
+    [lead.decision_maker_email, 'email'],
+    [lead.decision_maker_phone, 'phone'],
+    [lead.whatsapp_number, 'phone'],
+    [lead.decision_maker_whatsapp, 'phone'],
+  ] as const) {
+    const v = value?.trim();
+    if (!v || v.length < 5) continue;
+    out = out.split(v).join(maskContact(v, kind));
+  }
+  return out;
+}
+
 /** Masks an email as `j•••@d•••.com`, a phone as its last two digits. Shape survives; the value does not. */
 export function maskContact(value: string | null | undefined, kind: 'email' | 'phone'): string {
   if (!value) return '—';

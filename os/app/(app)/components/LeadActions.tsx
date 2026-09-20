@@ -188,9 +188,11 @@ export function PipelineForm({ leadId, version }: { leadId: string; version: num
   );
 }
 
-export function ResearchRecordForm({ leadId, version, canSeeContacts, canApprove }: { leadId: string; version: number; canSeeContacts: boolean; canApprove: boolean }) {
+export function ResearchRecordForm({ leadId, version, canSeeContacts, canApprove, initialField }: { leadId: string; version: number; canSeeContacts: boolean; canApprove: boolean; initialField?: string }) {
   const [state, action, pending] = useActionState(recordResearchAction, INITIAL);
   const fields = RESEARCH_FIELDS.filter(f => (f.value !== 'email' && f.value !== 'phone') || canSeeContacts).filter(f => f.value !== 'fit' || canApprove);
+  // A research task links here with the field it records, so the form opens on that field rather than the default.
+  const selected = fields.some(f => f.value === initialField) ? initialField! : 'decision-maker';
   return (
     <form action={action}>
       <Hidden leadId={leadId} version={version} />
@@ -198,7 +200,7 @@ export function ResearchRecordForm({ leadId, version, canSeeContacts, canApprove
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label>
           What you found
-          <select name="field" defaultValue="decision-maker">
+          <select name="field" defaultValue={selected} key={selected}>
             {fields.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         </label>

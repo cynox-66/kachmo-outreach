@@ -151,7 +151,7 @@ if (process.argv[1] && /server[\\/]leads[\\/]reevaluate-run\.ts$/.test(process.a
   const { openOperatorDatabase } = await import('./operator-db');
   const arg = (k: string) => process.argv.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
   const apply = process.argv.includes('--apply');
-  const { db, close, label } = openOperatorDatabase();
+  const { db, close, label } = openOperatorDatabase({ writes: apply });
   (async () => {
     console.log(`\n⚖️  Re-evaluation (Methodology v1.0) — target ${label}`);
     const r = await runReevaluation(db, { apply, confirm: arg('confirm'), actor: arg('actor') ?? '' });

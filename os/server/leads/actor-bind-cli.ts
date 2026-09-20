@@ -19,7 +19,7 @@ if (!user || !actor || (!revoke && !isEngineActor(as))) {
   process.exit(2);
 }
 
-const { db, close, label } = openOperatorDatabase();
+const { db, close, label } = openOperatorDatabase({ writes: true });
 (async () => {
   console.log(`\n🪪 Engine-actor binding — target ${label}`);
   if (revoke) {

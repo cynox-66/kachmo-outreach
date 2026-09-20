@@ -197,7 +197,7 @@ if (process.argv[1] && /server[\\/]evidence[\\/]fetch-run\.ts$/.test(process.arg
   const apply = process.argv.includes('--apply');
   const limit = Number(arg('limit') ?? 20);
   const targetNumber = arg('lead') ?? null;
-  const { db, close, label } = openOperatorDatabase();
+  const { db, close, label } = openOperatorDatabase({ writes: apply });
   (async () => {
     console.log(`\n🔎 Evidence fetch — target ${label}`);
     const plan = await planFetch(db, { targetNumber, limit });

@@ -2,6 +2,7 @@ import type { CallingCard, KachmoLead, ResearchQueueItem, SuppressionEntry, What
 import type { TrackerRow, ScheduledEmail } from '../email-ledger/tracker.js';
 import { outreachBlock } from '../suppression/match.js';
 import { priorityLabel } from '../util/text.js';
+import { isFollowUpDue, isEmailFollowUpDue, isReplyWaiting, isPositiveWithoutMeeting } from '../queues/work-rules.js';
 
 export interface WarRoomSummary {
   date: string;
@@ -61,8 +62,7 @@ export function buildWarRoomSummary(input: WarRoomInput): WarRoomSummary {
   const { today, leads, suppression, tracker } = input;
   const byTn = new Map(leads.map(l => [l.target_number, l]));
   const blocked = (l?: KachmoLead) => !!l && outreachBlock(l, suppression, tracker.get(l.target_number)?.status ?? null).blocked;
-  const due = (d?: string | null) => !!d && d <= today;
-  const followUps = leads.filter(l => due(l.next_action_date) && !blocked(l) && l.research_state !== 'DISQUALIFIED');
+  const followUps = leads.filter(l => isFollowUpDue(l, today, blocked(l)));
   const trackerRows = [...tracker.values()];
 
   return {
@@ -77,12 +77,12 @@ export function buildWarRoomSummary(input: WarRoomInput): WarRoomSummary {
     },
     dev: {
       email_follow_ups_due: trackerRows
-        .filter(r => r.status === 'SENT' && due(r.follow_up_due) && !blocked(byTn.get(r.target_number)) && !byTn.get(r.target_number)?.email_follow_up_sent_at)
+        .filter(r => isEmailFollowUpDue(r, byTn.get(r.target_number), today, blocked(byTn.get(r.target_number))))
         .map(r => `${r.target_number} ${byTn.get(r.target_number)?.company_name ?? ''} (due ${r.follow_up_due})`),
       replies_to_answer: trackerRows
-        .filter(r => r.status === 'REPLIED_WARM' || r.status === 'REPLIED_NOT_NOW')
+        .filter(isReplyWaiting)
         .map(r => `${r.target_number} ${byTn.get(r.target_number)?.company_name ?? ''} (${r.status})`),
-      positive_without_meeting: leads.filter(l => l.response_status === 'REPLIED_POSITIVE' && !l.meeting_status && !l.deal_stage).map(label),
+      positive_without_meeting: leads.filter(isPositiveWithoutMeeting).map(label),
       scheduled_emails_local: input.scheduled.map(s => `${s.targetNumber} ${s.companyName}`),
       next_email_candidates: leads
         .filter(l => l.research_state === 'OUTREACH_READY' && l.recommended_channel === 'EMAIL')
