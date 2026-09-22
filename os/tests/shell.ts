@@ -129,6 +129,37 @@ group('5. Security headers, routing and sign-in');
   assert(!existsSync(join(APP, 'signup')) && !existsSync(join(APP, 'register')), 'no sign-up route exists');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+group('6. The operator surfaces (ADR-035): failure states exist, and engineering stays on System pages');
+{
+  // Audit C5: a failure is a page an operator can act on, never Next's generic crash screen.
+  for (const f of ['(app)/error.tsx', '(app)/not-found.tsx', '(app)/loading.tsx', 'global-error.tsx', 'not-found.tsx']) {
+    assert(existsSync(join(APP, f)), `failure state exists: app/${f}`);
+  }
+  assert(/Nothing was changed/.test(read(join(APP, '(app)/error.tsx'))) && /digest/.test(read(join(APP, '(app)/error.tsx'))), 'the error page says nothing was changed, and gives a reference instead of the error');
+
+  // Audit E1: the layout wraps every request; it must not read the database to print the phase.
+  const layout = read(join(APP, '(app)/layout.tsx'));
+  assert(!/loadCanonical|requestSnapshot|getServer\(|getDashboard/.test(layout), 'the layout reads no database (the phase is configuration)');
+  assert(/resolveCutoverPhase\(\)/.test(layout), 'it still states the phase whenever it is not the production state');
+
+  // Environment variables, commands and file names are engineering copy: System pages only.
+  const SYSTEM_PAGES = ['settings', 'users', 'audit', 'analytics', 'inventory'];
+  const operatorFiles = walk(join(APP, '(app)')).filter(f => /\.tsx$/.test(f) && !SYSTEM_PAGES.some(p => f.includes(`/(app)/${p}/`)));
+  const engineering = /KACHMO_[A-Z_]+|npm (run|--prefix)|OUTREACH_TRACKER|scheduled-queue\.json|leads:(record|refresh|reevaluate)|actor:bind/;
+  const leaking = operatorFiles.filter(f => engineering.test(read(f).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')));
+  assert(operatorFiles.length >= 15 && leaking.length === 0, `no operator page or form shows an environment variable, a command or a file name (${operatorFiles.length} files)`, leaking.map(rel));
+
+  // Every page uses one request-scoped snapshot rather than loading the whole store per service (audit E1).
+  const pages = walk(join(APP, '(app)')).filter(f => f.endsWith('page.tsx'));
+  const direct = pages.filter(f => /\bloadCanonical\(\)/.test(read(f)) && !f.includes('/settings/'));
+  assert(direct.length === 0, 'operator pages share one request-scoped snapshot', direct.map(rel));
+
+  // Research is marked, never stated as fact (audit B1): the company page renders claims only through <Claim>.
+  const company = read(join(APP, '(app)/leads/[id]/page.tsx'));
+  assert(/<Claim /.test(company) && !/commercial_validation_signal/.test(company), 'the company page shows research claims only with their verification mark');
+}
+
 console.log(`\n${'='.repeat(60)}\nSHELL SUMMARY: ${passed} passed | ${failures.length} failed`);
 if (failures.length) {
   console.log(failures.map(f => `  - ${f}`).join('\n'));

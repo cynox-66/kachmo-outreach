@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache';
 import { requirePermission } from '../auth/current-actor';
 import { getServer } from '../auth/instance';
+import { guarded, isUuid } from '../auth/action-guard';
 import { reviewEvidence } from './review';
 
 /**
@@ -15,15 +16,19 @@ export interface EvidenceActionState {
 }
 
 export async function reviewEvidenceAction(_prev: EvidenceActionState, form: FormData): Promise<EvidenceActionState> {
-  const actor = await requirePermission('evidence.review');
-  const r = await reviewEvidence(getServer().db, actor, {
-    evidenceId: form.get('evidenceId'),
-    verdict: form.get('verdict'),
-    excerpt: form.get('excerpt'),
-    note: form.get('note'),
+  return guarded(async () => {
+    const actor = await requirePermission('evidence.review');
+    if (!isUuid(form.get('evidenceId'))) return { error: 'That source could not be found. Reload the page.' };
+    const r = await reviewEvidence(getServer().db, actor, {
+      evidenceId: form.get('evidenceId'),
+      verdict: form.get('verdict'),
+      excerpt: form.get('excerpt'),
+      note: form.get('note'),
+    });
+    if (!r.ok) return { error: r.error };
+    const tn = form.get('targetNumber');
+    if (typeof tn === 'string' && /^\d{1,4}$/.test(tn)) revalidatePath(`/leads/${tn}`);
+    revalidatePath('/', 'layout');
+    return { error: null, ok: r.message };
   });
-  if (!r.ok) return { error: r.error };
-  const leadId = form.get('leadId');
-  if (typeof leadId === 'string' && leadId) revalidatePath(`/leads/${leadId}`);
-  return { error: null, ok: r.message };
 }

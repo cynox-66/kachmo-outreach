@@ -10,6 +10,8 @@ import type { Actor } from '../authz/authorize';
 import { loadCanonical, ledgerStatusOf, type CanonicalSnapshot } from '../repo/canonical';
 import { activeEngineActor } from '../leads/actor-binding';
 import { REVIEWABLE_STATUSES } from '../research/service';
+import { describeWork, type WorkLine, type Urgency } from './operator';
+import { recordFieldForTask } from './research-queue';
 
 /**
  * TODAY (Phase C, ADR-028) — the operating loop's front page.
@@ -24,27 +26,38 @@ export interface TodayView {
   source: 'GIT_JSON' | 'POSTGRES';
   /** The actor's engine identity, when bound: "mine" means items owned by this actor. */
   me: 'DEV' | 'AADI' | null;
-  items: Array<TodayItem & { href: string }>;
+  items: Array<TodayItem & { href: string; line: WorkLine }>;
   counts: Record<TodayKind, number>;
+  byUrgency: Record<Urgency, number>;
 }
 
 const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-/** Where each kind of work is done. Email work links to the read-only ledger page: it is done in Titan. */
+/**
+ * Where each kind of work is done. Email work opens the company, where its email history and the next step are — the
+ * email itself is sent from the studio inbox (Titan), never from here. Research opens the right record form.
+ */
 function hrefFor(i: TodayItem): string {
+  const lead = `/leads/${i.targetNumber}`;
   switch (i.kind) {
-    case 'REPLY_WAITING':
-    case 'EMAIL_FOLLOW_UP_DUE':
-      return '/email';
     case 'CALL_READY':
-      return '/calls';
+      return `/calls#call-${i.targetNumber}`;
     case 'WHATSAPP_TO_SEND':
     case 'WHATSAPP_TO_APPROVE':
-      return '/whatsapp';
+      return `/whatsapp#wa-${i.targetNumber}`;
     case 'CANDIDATE_REVIEW':
       return `/research/candidates/${i.ref}`;
+    case 'EVIDENCE_REVIEW':
+    case 'EVIDENCE_RECHECK':
+    case 'EVIDENCE_CONTRADICTION':
+      return `${lead}#sources`;
+    case 'RESEARCH': {
+      const next = i.why.find(w => w.startsWith('next task:'))?.slice('next task:'.length).trim();
+      const field = next ? recordFieldForTask(next) : null;
+      return field ? `${lead}?record=${field}#record` : `${lead}#record`;
+    }
     default:
-      return `/leads/${i.targetNumber}`;
+      return lead;
   }
 }
 
@@ -139,5 +152,13 @@ export async function getToday(actor: Actor, opts: { mine?: boolean; snapshot?: 
   const me = snap.source === 'POSTGRES' ? await activeEngineActor(db, actor.userId).catch(() => null) : null;
   const visible = all.filter(i => actor.permissions.has(PERMISSION_FOR[i.kind])).filter(i => !opts.mine || !me || i.owner === me);
   const counts = Object.fromEntries(TODAY_KINDS.map(k => [k, visible.filter(i => i.kind === k).length])) as Record<TodayKind, number>;
-  return { today, source: snap.source, me, items: visible.map(i => ({ ...i, href: hrefFor(i) })), counts };
+  const byTn = new Map(snap.leads.map(l => [l.target_number, l]));
+  const items = visible.map(i => ({
+    ...i,
+    href: hrefFor(i),
+    line: describeWork(i, { today, ledger: snap.tracker.get(i.targetNumber) ?? null, nextAction: byTn.get(i.targetNumber)?.next_action ?? null }),
+  }));
+  const byUrgency: Record<Urgency, number> = { now: 0, today: 0, later: 0 };
+  for (const i of items) byUrgency[i.line.urgency]++;
+  return { today, source: snap.source, me, items, counts, byUrgency };
 }

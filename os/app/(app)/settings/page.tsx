@@ -4,13 +4,14 @@ import { jobStatus } from '@/server/jobs/runner';
 import { getServer } from '@/server/auth/instance';
 import { JOB_WRITES, JOBS } from '@/server/jobs/jobs';
 import { loadCanonical } from '@/server/repo/canonical';
-import { phaseBanner, leadWritesEnabled } from '@/server/repo/phase';
+import { phaseBanner, leadWritesEnabled, writeRefusal } from '@/server/repo/phase';
 import { DEFAULT_THRESHOLDS } from '@kachmo/core/research/inventory.js';
 import { ARCHETYPES_V1, TAXONOMY_VERSION } from '@kachmo/core/config/taxonomy.js';
 import { METHODOLOGY_V1_0 } from '@/server/methodology/v1';
 import { FIELD_OWNERSHIP, PHASES, CUTOVER_PHASES } from '@kachmo/core/reconciliation/ownership.js';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Settings' };
 
 /**
  * Configuration, shown read-only.
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
   const health = snapshot?.source === 'POSTGRES' ? await getWritePathHealth().catch(() => null) : null;
   const jobs = snapshot?.source === 'POSTGRES' ? await jobStatus(getServer().db).catch(() => []) : [];
   const phase = snapshot?.phase ?? 'PRE_CUTOVER';
+  const refusal = writeRefusal();
   const banner = phaseBanner(phase);
 
   return (
@@ -41,6 +43,30 @@ export default async function SettingsPage() {
         Everything that decides how a lead is qualified is versioned in code and pinned by the golden regression.
         This page shows what is configured; it does not let you change qualification semantics from a form.
       </p>
+
+      <h2 id="recording">Recording</h2>
+      <div className={`plate banner ${refusal ? 'act' : ''}`}>
+        <span className={`chip ${refusal ? 'act' : 'done'}`}>{refusal ? 'Off' : 'On'}</span>
+        <div className="body">
+          {refusal ? (
+            <>
+              <p>
+                <strong>Operators can look at everything but cannot record changes.</strong>
+              </p>
+              <p className="small">
+                Reason: <code>{refusal}</code>
+              </p>
+              <p className="small muted">
+                To switch recording on (Phase B runbook, <code>audit/OUTBOUND_OS_PHASE_B_AUDIT.md</code> §5): bind each writer with{' '}
+                <code>npm --prefix os run actor:bind</code>, then set <code>KACHMO_APP_WRITES=on</code> and <code>KACHMO_APP_WRITES_HOST</code> to the exact
+                database host — in the production deployment only, never in <code>os/.env.local</code>.
+              </p>
+            </>
+          ) : (
+            <p>Operators can record changes. Every write is re-evaluated by the engine, versioned and audited under the person’s name.</p>
+          )}
+        </div>
+      </div>
 
       <h2>State</h2>
       <div className="panel">

@@ -1,145 +1,124 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
+import { requestSnapshot } from '@/server/services/snapshot';
 import { getCallQueue } from '@/server/services/operations';
 import { writeStatusFor } from '@/server/services/write-status';
-import { EmptyState } from '../components/EmptyState';
-import { CallLogForm, WritesUnavailable } from '../components/LeadActions';
+import { VERIFICATION, dayLabel, humanizeExclusion, humanizeRefusal } from '@/server/services/operator';
+import { CallForm, WritesUnavailable } from '../components/LeadActions';
+import { Disclosure, EmptyNote, PageHead } from '../components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Calls' };
+
+/** A briefing claim with its source state, so nobody quotes an unsourced claim on a call. */
+function Said({ label, value, sourced }: { label: string; value: string; sourced: boolean }) {
+  const v = VERIFICATION[sourced ? 'SOURCED' : 'UNSOURCED'];
+  return (
+    <div className={`claim ${sourced ? '' : 'unsourced'}`}>
+      <span className="label what">{label}</span>
+      <p className="value">{value || '—'}</p>
+      <span className="verify">
+        <span className="mark" aria-hidden="true">
+          {v.mark}
+        </span>
+        {v.label}
+        {sourced ? '' : ' — don’t quote it as fact'}
+      </span>
+    </div>
+  );
+}
 
 /**
- * CALLS — Human calling briefing workspace.
- *
- * The system prepares the card and battlecard for human calls.
- * It never dials or places calls automatically.
+ * CALLS — who to call today, and the briefing for each call. Only numbers they publish or we confirmed appear here.
+ * The app never dials: it prepares the call and records what happened.
  */
 export default async function CallsPage() {
   const actor = await requirePermission('outreach.call');
-  const q = await getCallQueue(actor);
+  const q = await getCallQueue(actor, await requestSnapshot());
   const writes = await writeStatusFor(actor);
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1>Calls</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            {q.today} (IST) · Human operator outreach
-          </p>
-        </div>
-        <span className={`badge ${q.cards.length > 0 ? 'ok' : 'info'}`}>
-          {q.cards.length} ready to call
-        </span>
-      </div>
-
-      <p className="lede" style={{ marginBottom: 20 }}>
-        Only phone numbers with a recorded public source or verified basis appear in the call queue.
-        This system places no automated calls: it prepares the briefing card and records what a human operator did.
-      </p>
-
-      {/* ── SECTION 1: CALL READY ────────────────────────────────────────── */}
-      <h2>Call Ready ({q.cards.length})</h2>
+      <PageHead
+        label={dayLabel(q.today)}
+        title="Calls"
+        sub={q.cards.length ? `${q.cards.length} ${q.cards.length === 1 ? 'company is' : 'companies are'} ready to call. Only numbers they publish, or that we confirmed, appear here.` : 'Only numbers they publish, or that we confirmed, appear here.'}
+      />
 
       {q.cards.length === 0 ? (
-        <EmptyState
-          title="Nothing is callable today."
-          description={`${q.unsourcedPhones} lead(s) have a phone number on file, but source provenance has not been verified yet, so calling is withheld.`}
-          action={
-            <Link href="/leads?contact=callable" className="badge ghost" style={{ textDecoration: 'none' }}>
-              View callable leads →
-            </Link>
-          }
-          style={{ marginBottom: 28 }}
-        />
+        <EmptyNote title="Nobody is ready to call." action={{ href: '/leads?status=NEEDS_RESEARCH', label: 'See who needs research' }}>
+          {q.unsourcedPhones
+            ? `${q.unsourcedPhones} compan${q.unsourcedPhones === 1 ? 'y has' : 'ies have'} a phone number on file, but nobody recorded where it came from — so it isn’t used. Find where they publish it and record it.`
+            : 'No company has a usable phone number yet.'}
+        </EmptyNote>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 28 }}>
-          {q.cards.map(c => (
-            <div className="panel" key={c.targetNumber} style={{ borderLeft: '3px solid var(--accent)' }}>
-              <div className="row between" style={{ marginBottom: 8 }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '16px' }}>
-                    <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', color: 'var(--ink-muted)', marginRight: 8 }}>
-                      {c.targetNumber}
-                    </span>
-                    <Link href={`/leads/${c.targetNumber}`} style={{ textDecoration: 'none', color: 'var(--ink)' }}>
-                      {c.company}
-                    </Link>
-                  </h3>
-                  <p className="small muted" style={{ margin: '3px 0 0' }}>
-                    {c.decisionMaker} ({c.title}) · {c.city} {c.timezone ? `(${c.timezone})` : ''}
-                    {c.previousAttempts ? ` · ${c.previousAttempts} previous attempt(s)` : ''}
-                  </p>
-                </div>
-
-                <div className="row" style={{ gap: 8 }}>
-                  <span className="badge">{c.priority}</span>
-                  <Link href={`/leads/${c.targetNumber}`} className="badge ghost" style={{ textDecoration: 'none' }}>
-                    View lead
+        q.cards.map(c => (
+          <section key={c.targetNumber} id={`call-${c.targetNumber}`} className="plate" style={{ marginBottom: 'var(--s4)', scrollMarginTop: 'var(--s4)' }}>
+            <div className="row between">
+              <div style={{ minWidth: 0 }}>
+                <span className="label">
+                  {c.city}
+                  {c.timezone ? ` · ${c.timezone}` : ''}
+                  {c.previousAttempts ? ` · ${c.previousAttempts} earlier attempt${c.previousAttempts === 1 ? '' : 's'}` : ''}
+                </span>
+                <h3 style={{ fontSize: 18, margin: 0 }}>
+                  <Link href={`/leads/${c.targetNumber}`} style={{ textDecoration: 'none' }}>
+                    {c.company}
                   </Link>
-                  {c.phoneVisible ? (
-                    <a href={`tel:${c.phone}`} className="action-card-btn" style={{ textDecoration: 'none' }}>
-                      Call {c.phone}
-                    </a>
-                  ) : (
-                    <span className="badge warn">Phone masked for role</span>
-                  )}
-                </div>
-              </div>
-
-              <dl className="kv" style={{ marginTop: 10 }}>
-                <dt>Why them</dt>
-                <dd className="wrap">{c.whyThem}</dd>
-                <dt>Angle</dt>
-                <dd className="wrap"><strong>{c.angle}</strong></dd>
-                <dt>Observable friction</dt>
-                <dd className="wrap">{c.friction}</dd>
-                <dt>Call objective</dt>
-                <dd className="wrap">{c.objective}</dd>
-              </dl>
-
-              {c.verifyFirst.length ? (
-                <div style={{ marginTop: 12 }}>
-                  <p className="small muted" style={{ margin: '0 0 4px', fontWeight: 600 }}>
-                    Verify before dialing:
-                  </p>
-                  <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
-                    {c.verifyFirst.map((v, i) => (
-                      <li key={i}>{v}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {/* Recommended Opening & Bridge */}
-              <div style={{ marginTop: 12 }}>
-                <p className="small muted" style={{ margin: '0 0 4px', fontWeight: 600 }}>
-                  Recommended Opening & Bridge:
+                </h3>
+                <p className="muted" style={{ margin: '2px 0 0' }}>
+                  {c.decisionMaker}
+                  {c.title ? `, ${c.title}` : ''}
                 </p>
-                <pre className="draft" style={{ margin: 0 }}>
-                  {c.opening}{'\n\n'}{c.bridge}
-                </pre>
               </div>
+              {c.phoneVisible ? (
+                <a className="btn btn-act" href={`tel:${c.phone}`}>
+                  Call {c.phone}
+                </a>
+              ) : (
+                <span className="chip">Number hidden for your role</span>
+              )}
+            </div>
 
-              {/* Discovery Questions */}
+            <div style={{ marginTop: 'var(--s4)' }}>
+              <Said label="Why them" value={c.whyThem} sourced={c.whyThemSourced} />
+              <Said label="Their website problem" value={c.friction} sourced={c.frictionSourced} />
+              <div className="claim">
+                <span className="label what">What to aim for</span>
+                <p className="value">{c.objective}</p>
+              </div>
+            </div>
+
+            {c.verifyFirst.length ? (
+              <div className="consequence" style={{ marginTop: 'var(--s3)' }}>
+                <strong>Before you dial</strong>
+                <ul style={{ margin: 'var(--s1) 0 0', paddingLeft: 18 }}>
+                  {c.verifyFirst.map((v, i) => (
+                    <li key={i}>{v}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <Disclosure title="Script and answers to objections">
+              <pre className="draft">
+                {c.opening}
+                {'\n\n'}
+                {c.bridge}
+              </pre>
               {c.questions.length ? (
-                <div style={{ marginTop: 12 }}>
-                  <p className="small muted" style={{ margin: '0 0 4px', fontWeight: 600 }}>
-                    Discovery Questions:
-                  </p>
-                  <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
-                    {c.questions.map((q, i) => (
-                      <li key={i}>{q}</li>
+                <>
+                  <span className="label">Questions to ask</span>
+                  <ol className="small" style={{ margin: '0 0 var(--s3)', paddingLeft: 18 }}>
+                    {c.questions.map((x, i) => (
+                      <li key={i}>{x}</li>
                     ))}
                   </ol>
-                </div>
+                </>
               ) : null}
-
-              {/* Objections Handling */}
               {c.objections.length ? (
-                <div style={{ marginTop: 12 }}>
-                  <p className="small muted" style={{ margin: '0 0 4px', fontWeight: 600 }}>
-                    If they say…
-                  </p>
+                <>
+                  <span className="label">If they say…</span>
                   <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
                     {c.objections.map((o, i) => (
                       <li key={i}>
@@ -147,63 +126,63 @@ export default async function CallsPage() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </>
               ) : null}
+              {c.doNotSay.length ? (
+                <>
+                  <span className="label" style={{ marginTop: 'var(--s3)' }}>
+                    Don’t say
+                  </span>
+                  <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+                    {c.doNotSay.map((x, i) => (
+                      <li key={i}>{x}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </Disclosure>
 
-              <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
-                <p className="small muted" style={{ margin: '0 0 6px', fontWeight: 600 }}>Log what happened on this call</p>
-                {q.source !== 'POSTGRES' ? (
-                  <p className="small muted" style={{ margin: 0 }}>Before cutover, calls are logged with the CLI: <code>{c.logCommand}</code></p>
-                ) : writes.canWrite && c.version !== null ? (
-                  <CallLogForm leadId={c.leadId} version={c.version} />
-                ) : (
-                  <WritesUnavailable reason={writes.reason ?? 'this lead has no stored version; reload the page.'} />
-                )}
-              </div>
+            <div style={{ marginTop: 'var(--s4)' }}>
+              <span className="label">After the call</span>
+              {q.source !== 'POSTGRES' ? (
+                <p className="small muted" style={{ margin: 0 }}>Calls are recorded with the command-line tools until the database is the source of truth.</p>
+              ) : writes.canWrite && c.version !== null ? (
+                <CallForm target={{ leadId: c.leadId, version: c.version, targetNumber: c.targetNumber }} />
+              ) : (
+                <WritesUnavailable reason={humanizeRefusal(writes.reason ?? 'this company changed; reload the page.')} />
+              )}
             </div>
-          ))}
-        </div>
+          </section>
+        ))
       )}
 
-      {/* ── SECTION 2: NOT CALLABLE ──────────────────────────────────────── */}
-      <h2>Not Ready to Call ({q.excluded.length})</h2>
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Target</th>
-              <th>Company</th>
-              <th>Why Not Callable</th>
-              <th style={{ textAlign: 'right' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.excluded.map(e => (
-              <tr key={e.targetNumber}>
-                <td className="small" style={{ fontFamily: 'var(--mono)' }}>
-                  <Link href={`/leads/${e.targetNumber}`} style={{ textDecoration: 'none' }}>
-                    {e.targetNumber}
-                  </Link>
-                </td>
-                <td>
-                  <strong>{e.company}</strong>
-                </td>
-                <td className="wrap small muted">{e.reason}</td>
-                <td style={{ textAlign: 'right' }}>
-                  <Link href={`/leads/${e.targetNumber}`} className="badge ghost" style={{ textDecoration: 'none' }}>
-                    View lead →
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {q.excluded.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="empty">No leads currently excluded.</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+      {q.excluded.length ? (
+        <>
+          <h2>Not ready to call</h2>
+          <Disclosure title="Why these companies can’t be called yet" meta={`${q.excluded.length}`}>
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Why not</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {q.excluded.map(e => (
+                    <tr key={e.targetNumber}>
+                      <td>
+                        <Link href={`/leads/${e.targetNumber}`}>{e.company}</Link>
+                      </td>
+                      <td className="wrap small muted">{humanizeExclusion(e.reason)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Disclosure>
+        </>
+      ) : null}
     </>
   );
 }

@@ -1,710 +1,511 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requirePermission } from '@/server/auth/current-actor';
-import { getLeadDetail } from '@/server/services/leads';
-import { presentStatus, presentTone, presentGate, presentField } from '@/server/services/presentation';
-import { StatusBadge } from '../../components/StatusBadge';
-import { DetailDisclosure } from '../../components/DetailDisclosure';
-import { getServer } from '@/server/auth/instance';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { getCompany } from '@/server/services/company';
 import { writeStatusFor } from '@/server/services/write-status';
-import { evidenceForLead } from '@/server/evidence/store';
-import { coverageForLead } from '@/server/evidence/coverage';
-import { getLeadTimeline } from '@/server/services/timeline';
+import {
+  EVIDENCE_LEVEL_LABELS,
+  GATE_OUTCOME_LABELS,
+  actorName,
+  dayLabel,
+  emailDates,
+  fieldNoun,
+  humanizeRefusal,
+  ledgerStatusLabel,
+  momentLabel,
+  researchTaskLabel,
+} from '@/server/services/operator';
 import { recordFieldForTask } from '@/server/services/research-queue';
-import { CallLogForm, PipelineForm, ResearchRecordForm, SuppressionForm, WritesUnavailable } from '../../components/LeadActions';
+import type { TimelineEntry } from '@/server/services/timeline';
+import { RecordPanel, WritesUnavailable } from '../../components/LeadActions';
 import { EvidenceReviewForm } from '../../components/EvidenceReview';
+import { AsOf, Banner, Chip, Claim, Disclosure, EmailPreview, PageHead, StatusChip } from '../../components/ui';
 
 export const dynamic = 'force-dynamic';
 
-const MARK: Record<string, string> = { PASS: '✓', UNVERIFIED: '~', PENDING: '?', UNKNOWN: '·', FAIL: '✗' };
-const BADGE: Record<string, string> = { PASS: 'ok', UNVERIFIED: 'warn', PENDING: 'warn', UNKNOWN: '', FAIL: 'bad' };
-
-/**
- * LEAD DETAIL — Two-level operator presentation:
- * Level 1: Simple Overview (Why them, Opportunity, Next Action, Contact, Outreach)
- * Level 2: Full Intelligence (Gates, Score breakdown, Provenance, Missing intelligence, Titan ledger)
- *
- * All values are computed by core/ from the canonical record.
- */
-export default async function LeadDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ record?: string }> }) {
-  const actor = await requirePermission('lead.view');
-  const { id } = await params;
-  const { record: recordField } = await searchParams;
-  const d = await getLeadDetail(id, actor);
-  if (!d) notFound();
-
-  const { lead, row, contacts, scores } = d;
-  const writes = await writeStatusFor(actor);
-  // Claim-level evidence exists only in Postgres (after cutover); `version` is set exactly then.
-  const evidence = d.version !== null ? await evidenceForLead(getServer().db, lead.lead_id) : [];
-  const timeline = d.version !== null ? await getLeadTimeline(lead) : [];
-  // How far each gate's source has actually been taken (Phase D, ADR-031). Measurement only: the gate outcomes above
-  // are Methodology v1.0's, unchanged.
-  const cover = d.version !== null ? await coverageForLead(getServer().db, lead, d.qualificationGates) : null;
-  const coverageOf = (gate: string) => cover?.coverage.find(c => c.gate === gate) ?? null;
-  const LEVEL_TONE: Record<string, string> = { SUPPORTED: 'ok', RETRIEVED: 'warn', CONTRADICTED: 'bad', URL_SHAPED: 'warn', CLAIMED: 'warn', NONE: '' };
-  const can = (p: Parameters<typeof actor.permissions.has>[0]) => actor.permissions.has(p);
-  const canSeeContacts = can('lead.view_contacts');
-  const canReview = can('evidence.review') && canSeeContacts;
-  const version = d.version;
-
-  const contactLine = (label: string, c: typeof contacts.email) => {
-    if (!c.present) return <span className="muted">none on file</span>;
-    return (
-      <span>
-        <code>{c.visible ? c.value : c.masked}</code>{' '}
-        <span className={`badge ${c.usableForOutreach ? 'ok' : 'warn'}`}>{c.status}</span>
-        {!c.visible ? <span className="badge" style={{ marginLeft: 6 }}>hidden for your role</span> : null}
-      </span>
-    );
-  };
-
-  const contactRow = (label: string, c: typeof contacts.email) => (
-    <>
-      <dt>{label}</dt>
-      <dd>
-        {c.present ? (
-          <>
-            <code>{c.visible ? c.value : c.masked}</code> <span className={`badge ${c.usableForOutreach ? 'ok' : 'warn'}`}>{c.status}</span>
-            {!c.visible ? <span className="badge" style={{ marginLeft: 6 }}>hidden for your role</span> : null}
-            <div className="small muted" style={{ marginTop: 2 }}>
-              {c.provenanceNote}
-              {c.source ? (
-                <>
-                  {' — '}
-                  {/^https?:\/\//.test(c.source) ? (
-                    <a href={c.source} rel="noreferrer noopener nofollow" target="_blank">
-                      {c.source}
-                    </a>
-                  ) : (
-                    c.source
-                  )}
-                </>
-              ) : null}
-            </div>
-          </>
-        ) : (
-          <span className="muted">none on file</span>
-        )}
-      </dd>
-    </>
+/** A link only for http(s): a research source is untrusted text and must never become a javascript: link. */
+const SafeLink = ({ url, children }: { url: string | null; children?: React.ReactNode }) =>
+  url && /^https?:\/\//i.test(url) ? (
+    <a href={url} rel="noreferrer noopener nofollow" target="_blank">
+      {children ?? url}
+    </a>
+  ) : (
+    <span>{children ?? url}</span>
   );
 
-  /* ── LEVEL 1: SIMPLE OVERVIEW ────────────────────────────────────────── */
-  const simpleView = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Why We're Looking At Them */}
-      <div className="panel">
-        <h2 style={{ margin: '0 0 8px', fontSize: '14px' }}>Why We&rsquo;re Looking At Them</h2>
-        <p style={{ margin: '0 0 6px' }}>
-          <strong>{lead.commercial_validation_signal || 'No commercial signal recorded.'}</strong>
-        </p>
-        {lead.why_now ? (
-          <p className="small muted" style={{ margin: 0 }}>
-            Trigger: {lead.why_now}
+function HistoryList({ entries }: { entries: TimelineEntry[] }) {
+  return (
+    <ol className="rows" style={{ listStyle: 'none' }}>
+      {entries.map((e, i) => (
+        <li key={`${e.at}-${e.kind}-${i}`} className="work" style={{ gridTemplateColumns: 'minmax(96px, 130px) minmax(0, 1fr)' }}>
+          <span className="small muted mono">{/^\d{4}-\d{2}-\d{2}$/.test(e.at) ? dayLabel(e.at) : momentLabel(e.at)}</span>
+          <div style={{ minWidth: 0 }}>
+            <strong style={{ fontWeight: 600 }}>{e.title}</strong>
+            {e.summary ? <span className="muted"> — {e.summary}</span> : null}
+            <div className="small muted">{e.source === 'EVENT' || e.source === 'CALL' ? actorName(e.actor) : e.actor}</div>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * THE COMPANY PAGE (docs/OPERATOR_EXPERIENCE.md §4.3) — in the order an operator reasons: who is this and where do we
+ * stand, what do I do next, why them, who do we contact, what will we send, what happened, record something. The
+ * engineering detail is all still here, under "Details". Every value comes from `getCompany`; nothing is computed here.
+ */
+export default async function CompanyPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ record?: string; do?: string }> }) {
+  const actor = await requirePermission('lead.view');
+  const { id } = await params;
+  const { record: recordField, do: doKind } = await searchParams;
+  const snap = await requestSnapshot();
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const c = await getCompany(id, actor, snap, today);
+  if (!c) notFound();
+
+  const { detail, status } = c;
+  const { lead, row } = detail;
+  const can = (p: Parameters<typeof actor.permissions.has>[0]) => actor.permissions.has(p);
+  const canSeeContacts = can('lead.view_contacts');
+  const writes = await writeStatusFor(actor);
+  const version = detail.version;
+  const target = version !== null ? { leadId: lead.lead_id, version, targetNumber: lead.target_number } : null;
+  const recordable = !!target && writes.canWrite;
+  const options = {
+    pipeline: can('pipeline.update'),
+    call: can('outreach.call') && !!lead.decision_maker_phone,
+    research: can('lead.edit'),
+    whatsapp: can('outreach.whatsapp') && (!!lead.whatsapp_outreach_status || row.contactability.whatsapp),
+    dnc: can('suppression.create') && !c.block.blocked,
+  };
+  const nextHref = c.next.record === 'research' && c.next.field ? `?record=${c.next.field}#record` : c.next.record ? `?do=${c.next.record}#record` : null;
+  const where = [lead.location_city, lead.location_country].filter(Boolean).join(', ');
+  const systemEntries = c.timeline.filter(e => e.system);
+  const history = c.timeline.filter(e => !e.system);
+  const cover = c.coverage;
+  const coverageOf = (gate: string) => cover?.coverage.find(x => x.gate === gate) ?? null;
+  const dates = emailDates(snap.tracker.get(lead.target_number) ?? null, today);
+
+  return (
+    <>
+      <Link className="crumb" href="/leads">
+        ← Companies
+      </Link>
+
+      <PageHead
+        label={`${where} · ${detail.archetypeName} · #${lead.target_number}`}
+        title={lead.company_name}
+        sub={
+          <>
+            <SafeLink url={lead.website_url}>{lead.website_url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '')}</SafeLink>
+            {' · '}
+            {status.sentence}
+          </>
+        }
+        aside={
+          <>
+            <StatusChip status={status} />
+            {row.priority !== 'UNSCORED' ? (
+              <Chip title={row.priorityConfidence === 'PROVISIONAL' ? 'Provisional: the ranking can change once research is complete.' : undefined}>
+                Priority {row.priority}
+                {row.priorityConfidence === 'PROVISIONAL' ? ' · provisional' : ''}
+              </Chip>
+            ) : null}
+          </>
+        }
+      />
+
+      {c.block.blocked ? (
+        <Banner tone="stop" chip="Do not contact">
+          <p>
+            <strong>Nobody may contact {lead.company_name} — no email, no call, no WhatsApp.</strong>
           </p>
+          <p className="small">{c.block.sentence}</p>
+        </Banner>
+      ) : null}
+
+      {/* ── Next step ─────────────────────────────────────────────────── */}
+      <section id="next" className="plate lift" style={{ marginTop: 'var(--s4)' }} aria-labelledby="next-h">
+        <span className="label" id="next-h">
+          Next step
+        </span>
+        <p style={{ fontSize: 17, margin: 'var(--s1) 0 0' }}>
+          <strong>{c.next.text}</strong>
+        </p>
+        {c.next.detail ? <p className="muted" style={{ margin: 'var(--s1) 0 0' }}>{c.next.detail}</p> : null}
+        {nextHref && recordable ? (
+          <div className="form-actions" style={{ marginTop: 'var(--s3)' }}>
+            <Link className="btn btn-act" href={nextHref}>
+              {c.next.record === 'research' ? 'Record what you find' : 'Record it'}
+            </Link>
+          </div>
+        ) : null}
+      </section>
+
+      {/* ── Why them ──────────────────────────────────────────────────── */}
+      <h2>Why them</h2>
+      <div className="plate">
+        {c.claims.length ? c.claims.map(cl => <Claim key={cl.key} claim={cl} />) : <p className="muted" style={{ margin: 0 }}>Nothing on file yet — this needs research.</p>}
+        {lead.kachmo_solution_angle ? (
+          <div className="claim">
+            <span className="label what">How Kachmo would help</span>
+            <p className="value">{lead.kachmo_solution_angle}</p>
+            {detail.opportunity.scope || detail.opportunity.value ? (
+              <span className="verify">
+                {[detail.opportunity.scope, detail.opportunity.value ? `about ${detail.opportunity.value}` : null].filter(Boolean).join(' · ')} — our estimate
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
-      {/* Opportunity */}
-      <div className="panel">
-        <h2 style={{ margin: '0 0 8px', fontSize: '14px' }}>Opportunity</h2>
-        <dl className="kv">
-          <dt>Angle</dt>
-          <dd className="wrap"><strong>{lead.kachmo_solution_angle || '—'}</strong></dd>
-          <dt>Observable friction</dt>
-          <dd className="wrap">{lead.observable_friction || '—'}</dd>
-          <dt>Estimated scope</dt>
-          <dd>{d.opportunity.scope ?? '—'}</dd>
-          <dt>Estimated value</dt>
-          <dd>{d.opportunity.value ?? '—'}</dd>
-        </dl>
-      </div>
-
-      {/* Next Action */}
-      <div className="panel">
-        <div className="row between" style={{ marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: '14px' }}>Next Action</h2>
-          {lead.next_action_date ? (
-            <span className="badge warn">Due: {lead.next_action_date}</span>
-          ) : null}
-        </div>
-        <p style={{ margin: '0 0 8px', fontSize: '15px', fontWeight: 550 }}>
-          {row.nextAction ?? 'No next action recorded.'}
-        </p>
-        <p className="small muted" style={{ margin: 0 }}>
-          Owner: <strong>{lead.owner ?? 'unassigned'}</strong> · Channel: <strong>{lead.recommended_channel ?? 'none'}</strong>
-          {d.opportunity.reason ? ` — ${d.opportunity.reason}` : ''}
-        </p>
-      </div>
-
-      {/* Contact Summary */}
-      <div className="panel">
-        <h2 style={{ margin: '0 0 8px', fontSize: '14px' }}>Decision-maker & Contact</h2>
-        <dl className="kv">
+      {/* ── Who ───────────────────────────────────────────────────────── */}
+      <h2>Who we’d contact</h2>
+      <div className="plate">
+        <dl className="facts">
           <dt>Decision-maker</dt>
           <dd>
-            {lead.decision_maker_name ? (
+            {c.decisionMaker ? (
               <>
-                <strong>{lead.decision_maker_name}</strong>
-                {lead.decision_maker_title ? ` · ${lead.decision_maker_title}` : ''}{' '}
-                <span className="badge">{lead.decision_maker_confidence}</span>
+                <strong>{c.decisionMaker.name}</strong>
+                {c.decisionMaker.title ? `, ${c.decisionMaker.title}` : ''}
+                <span className="small muted">
+                  {' '}
+                  · {c.decisionMaker.verification === 'UNSOURCED' ? 'no source — confirm who they are before relying on it' : c.decisionMaker.verification === 'CHECKED' ? 'checked' : 'source recorded, not checked'}
+                </span>
               </>
             ) : (
-              <span className="muted">Not verified yet</span>
+              <span className="muted">Not known yet</span>
             )}
           </dd>
-          <dt>Email</dt>
-          <dd>{contactLine('Email', contacts.email)}</dd>
-          <dt>Phone</dt>
-          <dd>{contactLine('Phone', contacts.phone)}</dd>
-          <dt>Calling readiness</dt>
-          <dd>
-            <span className={`badge ${d.callEligibility.ok ? 'ok' : 'warn'}`}>
-              {d.callEligibility.ok ? 'Callable' : 'Not callable'}
-            </span>{' '}
-            <span className="small muted">{d.callEligibility.reason}</span>
-          </dd>
-        </dl>
-      </div>
-
-      {/* Outreach State */}
-      <div className="panel">
-        <h2 style={{ margin: '0 0 8px', fontSize: '14px' }}>Outreach Status</h2>
-        <dl className="kv">
-          <dt>Email status</dt>
-          <dd>{d.emailLedger.status ?? <span className="muted">Not in ledger</span>}</dd>
-          {d.emailLedger.sentDate ? (
-            <>
-              <dt>Sent on</dt>
-              <dd>{d.emailLedger.sentDate}</dd>
-            </>
-          ) : null}
-          {d.emailLedger.followUpDue ? (
-            <>
-              <dt>Follow-up due</dt>
-              <dd>{d.emailLedger.followUpDue}</dd>
-            </>
-          ) : null}
-          <dt>Pipeline stage</dt>
-          <dd>{row.pipelineStage}</dd>
-        </dl>
-      </div>
-
-      {/* Record what happened (Phase B) */}
-      <div className="panel" id="record">
-        <h2 style={{ margin: '0 0 8px', fontSize: '14px' }}>Record What Happened</h2>
-        {version === null ? (
-          <p className="small muted" style={{ margin: 0 }}>Before cutover, changes to this lead are recorded with the CLI.</p>
-        ) : !writes.canWrite ? (
-          <WritesUnavailable reason={writes.reason ?? 'unavailable'} />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {can('lead.edit') ? (
-              <section>
-                <p className="small muted" style={{ margin: '0 0 6px', fontWeight: 600 }}>Research you found</p>
-                <ResearchRecordForm leadId={lead.lead_id} version={version} canSeeContacts={canSeeContacts} canApprove={can('lead.approve')} initialField={recordField} />
-              </section>
-            ) : null}
-            {can('outreach.call') && lead.decision_maker_phone ? (
-              <section>
-                <p className="small muted" style={{ margin: '0 0 6px', fontWeight: 600 }}>A call</p>
-                <CallLogForm leadId={lead.lead_id} version={version} />
-              </section>
-            ) : null}
-            {can('pipeline.update') ? (
-              <section>
-                <p className="small muted" style={{ margin: '0 0 6px', fontWeight: 600 }}>A sales stage</p>
-                <PipelineForm leadId={lead.lead_id} version={version} />
-              </section>
-            ) : null}
-            {can('suppression.create') && !d.suppression.suppressed && !lead.do_not_contact ? (
-              <section>
-                <p className="small muted" style={{ margin: '0 0 6px', fontWeight: 600 }}>An opt-out</p>
-                <SuppressionForm leadId={lead.lead_id} />
-              </section>
-            ) : null}
-            <p className="small muted" style={{ margin: 0 }}>Recording as {writes.engineActor} · version {version}. Every change is re-evaluated by the engine and audited under your name.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  /* ── LEVEL 2: FULL INTELLIGENCE ──────────────────────────────────────── */
-  const intelligenceView = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Gates */}
-      <div>
-        <h2>Qualification Gates</h2>
-        <div className="panel">
-          <div className="gates">
-            {d.gates.map(g => (
-              <div key={g.gate} className="gate">
-                <span className="mark">{MARK[g.outcome] ?? '·'}</span>
-                <span>
-                  <strong>{presentGate(g.gate)}</strong>
-                  {!g.blocking ? <span className="small muted"> (advisory)</span> : null}
+          {c.routes.map(r => (
+            <div key={r.channel} style={{ display: 'contents' }}>
+              <dt>{r.channel}</dt>
+              <dd>
+                {r.value ? <code>{r.value}</code> : null}
+                {r.value ? ' ' : null}
+                <span className={r.usable ? '' : 'muted'}>
+                  {r.usable ? '✓ ' : ''}
+                  {r.says}
                 </span>
-                <span>
-                  <span className={`badge ${BADGE[g.outcome] ?? ''}`}>{g.outcome}</span>{' '}
-                  {(() => {
-                    const c = coverageOf(g.gate);
-                    if (!c || !c.fields.length) return null;
-                    return (
-                      <span className={`badge ${c.contradicted ? 'bad' : LEVEL_TONE[c.level] ?? ''}`} title={`Evidence recorded for ${c.fields.join(', ')}`}>
-                        evidence: {c.contradicted ? 'CONTRADICTED' : c.level}
-                      </span>
-                    );
-                  })()}{' '}
-                  <span className="small muted">{g.meaning}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-          {cover ? (
-            <p className="small muted" style={{ marginTop: 10 }}>
-              Evidence coverage: {cover.summary.checked} of {cover.summary.measurable} gates rest on a source a person has checked
-              {cover.summary.retrieved ? `, ${cover.summary.retrieved} on a page that was fetched but not yet read` : ''}
-              {cover.summary.contradicted ? `, ${cover.summary.contradicted} contradicted` : ''}. The gate outcomes themselves are
-              Methodology v1.0&rsquo;s and are not affected by this measurement.
-            </p>
-          ) : null}
-          {d.reasons.length ? (
-            <>
-              <p className="small muted" style={{ margin: '12px 0 4px' }}>
-                Recorded evidence reasons:
-              </p>
-              <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
-                {d.reasons.map(r => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Heuristic Scores */}
-      <div>
-        <h2>Heuristic Score Breakdown</h2>
-        <div className="panel">
-          <dl className="kv">
-            <dt>Kachmo score</dt>
-            <dd>
-              <strong>{scores.kachmoScore ?? '—'}</strong> / 100 — {row.priorityLabel}
-            </dd>
-            <dt>Commercial fit</dt>
-            <dd>{scores.commercialFitScore ?? '—'}</dd>
-            <dt>Decision-maker quality</dt>
-            <dd>{scores.dmQualityScore ?? '—'}</dd>
-            <dt>Pain / opportunity</dt>
-            <dd>{scores.painScore ?? '—'}</dd>
-            <dt>Budget viability</dt>
-            <dd>{scores.budgetScore ?? '—'}</dd>
-            <dt>Intent trigger</dt>
-            <dd>
-              {scores.intentTriggerScore ?? '—'}{' '}
-              <span className="small muted">(advisory only; not part of Kachmo score)</span>
-            </dd>
-          </dl>
-          {scores.signals?.length ? (
-            <p className="small muted" style={{ margin: '10px 0 0' }}>
-              Detected signals: {scores.signals.join(' · ')}
-            </p>
-          ) : null}
-          <p className="small muted" style={{ margin: '8px 0 0' }}>
-            Heuristic ranking over known dimensions. It is not a conversion probability; none is estimated.
-          </p>
-        </div>
-      </div>
-
-      {/* Contact Provenance */}
-      <div>
-        <h2>Contact Details & Provenance</h2>
-        <div className="panel">
-          <dl className="kv">
-            {contactRow('Email', contacts.email)}
-            {contactRow('Phone', contacts.phone)}
-            <dt>WhatsApp basis</dt>
-            <dd>
-              {lead.whatsapp_basis ? (
-                <>
-                  {lead.whatsapp_basis}{' '}
-                  <span className="small muted">— {lead.whatsapp_basis_source}</span>
-                </>
-              ) : (
-                <span className="muted">None recorded</span>
-              )}
-            </dd>
-            <dt>Call eligibility</dt>
-            <dd>
-              <span className={`badge ${d.callEligibility.ok ? 'ok' : 'warn'}`}>
-                {d.callEligibility.ok ? 'callable' : 'not callable'}
-              </span>{' '}
-              <span className="small muted">{d.callEligibility.reason}</span>
-            </dd>
-          </dl>
-        </div>
-      </div>
-
-      {/* Evidence & Provenance Table */}
-      <div>
-        <h2>Research Evidence Provenance</h2>
-        <div className="panel">
-          {d.provenance.length ? (
-            <div className="tablewrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Field</th>
-                    <th>Source</th>
-                    <th>Evidence level</th>
-                    <th>Recorded by</th>
-                    <th>When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.provenance.map((p, i) => (
-                    <tr key={`${p.field}-${i}`}>
-                      <td>{presentField(p.field)}</td>
-                      <td className="wrap small">
-                        {p.sourceUrl ? (
-                          <a href={p.sourceUrl} rel="noreferrer noopener nofollow" target="_blank">
-                            {p.sourceUrl}
-                          </a>
-                        ) : (
-                          <span className="muted">{p.sourceType}</span>
-                        )}
-                      </td>
-                      <td>
-                        <span className="badge warn">{p.evidenceLevel}</span>
-                      </td>
-                      <td>{p.recordedBy ?? '—'}</td>
-                      <td>{p.recordedOn ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                {r.source ? (
+                  <div className="small muted">
+                    Source: <SafeLink url={r.source} />
+                  </div>
+                ) : null}
+              </dd>
             </div>
-          ) : (
-            <p className="empty">No provenance source recorded against this lead.</p>
-          )}
-        </div>
+          ))}
+        </dl>
+        {!canSeeContacts ? <p className="small muted" style={{ margin: 'var(--s3) 0 0' }}>Contact details are hidden for your role.</p> : null}
       </div>
 
-      {/* Claim Evidence (Phase B) */}
-      {version !== null ? (
-        <div>
-          <h2>Claim Evidence ({evidence.length})</h2>
-          <div className="panel">
-            {evidence.length ? (
-              <div className="tablewrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Claim</th>
-                      <th>Source</th>
-                      <th>Level</th>
-                      <th>Checked</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {evidence.map(e => (
-                      <tr key={e.id}>
-                        <td className="wrap small">
-                          <strong>{presentField(e.field)}</strong>
-                          {e.claimValue ? <div className="muted">{e.claimValue}</div> : null}
-                          <div className="muted">{e.origin.toLowerCase().replace(/_/g, ' ')} · {e.recordedBy ?? '—'}</div>
-                        </td>
-                        <td className="wrap small">
-                          {e.sourceUrl ? (
-                            <a href={e.sourceUrl} rel="noreferrer noopener nofollow" target="_blank">{e.sourceDomain ?? e.sourceUrl}</a>
-                          ) : (
-                            <span className="muted">no URL</span>
-                          )}
-                          {e.retrieval ? (
-                            <div className="muted">
-                              fetched {e.retrieval.fetchedAt.slice(0, 10)} · HTTP {e.retrieval.httpStatus ?? '—'}
-                              {e.freshness === 'SOURCE_CHANGED' ? <> · <span className="badge bad">source changed since it was checked</span></> : null}
-                              {e.freshness === 'STALE' ? <> · <span className="badge warn">stale ({e.ageDays}d)</span></> : null}
-                            </div>
-                          ) : null}
-                          {!e.retrieval && e.failedAttempts ? <div className="muted">{e.failedAttempts} failed fetch attempt(s)</div> : null}
-                        </td>
-                        <td className="small">
-                          <span className={`badge ${e.level === 'SUPPORTED' ? 'ok' : e.level === 'CONTRADICTED' ? 'bad' : 'warn'}`}>{e.level}</span>
-                          {e.contradictedBy.length ? <div><span className="badge bad">contradicted</span></div> : null}
-                          <div className="muted">{e.levelReason}</div>
-                        </td>
-                        <td className="wrap small">
-                          {e.reviewStatus !== 'UNREVIEWED' ? (
-                            <>
-                              <div>{e.reviewStatus === 'CHECKED' ? 'checked' : 'not supported'} by {e.reviewedBy ?? '—'}</div>
-                              {e.supportingExcerpt && canSeeContacts ? <blockquote className="muted" style={{ margin: '4px 0 0' }}>&ldquo;{e.supportingExcerpt}&rdquo;</blockquote> : null}
-                              {e.reviewNote ? <div className="muted">{e.reviewNote}</div> : null}
-                            </>
-                          ) : e.level === 'RETRIEVED' && canReview && writes.canWrite && !e.contradictsEvidenceId ? (
-                            <EvidenceReviewForm evidenceId={e.id} leadId={lead.lead_id} />
-                          ) : (
-                            <span className="muted">{e.level === 'URL_SHAPED' ? 'not fetched yet (evidence:fetch)' : '—'}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+      {/* ── What we'll send ───────────────────────────────────────────── */}
+      {c.email.seesEmail && (c.email.queued || c.email.statusLabel) ? (
+        <>
+          <h2>{c.email.queued ? 'What we’ll send' : 'Email'}</h2>
+          <div className="plate">
+            {c.email.queued ? (
+              <>
+                <p style={{ marginTop: 0 }}>
+                  {c.email.queued.late ? (
+                    <>
+                      <Chip tone="act">Late</Chip> Planned for <strong>{dayLabel(c.email.queued.planned)}</strong> — it has not gone out ({c.email.queued.lateDays} day{c.email.queued.lateDays === 1 ? '' : 's'} late).
+                    </>
+                  ) : c.email.queued.planned ? (
+                    <>
+                      Sends automatically on <strong>{dayLabel(c.email.queued.planned)}</strong>, on a weekday morning in {c.email.queued.city ?? 'their city'}.
+                    </>
+                  ) : (
+                    'In the automatic email queue.'
+                  )}
+                </p>
+                <EmailPreview email={c.email.queued} open />
+                <p className="small muted" style={{ margin: 'var(--s3) 0 0' }}>
+                  Sent from the studio inbox by the automatic sender — this app cannot send, edit or cancel it. To stop it, mark the company “Do not contact”; that holds all
+                  automatic email until Dev removes it from the queue.
+                </p>
+              </>
             ) : (
-              <p className="empty">No claim evidence yet. A source URL recorded with research, or arriving with an approved candidate, appears here to be fetched and checked.</p>
+              <dl className="facts">
+                <dt>Status</dt>
+                <dd>{ledgerStatusLabel(c.email.statusLabel)}</dd>
+                {dates.date ? (
+                  <>
+                    <dt>{dates.kind === 'PLANNED' ? 'Planned for' : 'Sent'}</dt>
+                    <dd>
+                      {dayLabel(dates.date)}
+                      {dates.late ? ` — not sent yet (${dates.lateDays} days late)` : ''}
+                    </dd>
+                  </>
+                ) : null}
+                {dates.followUpDue ? (
+                  <>
+                    <dt>Follow-up</dt>
+                    <dd>{lead.email_follow_up_sent_at ? `Sent ${dayLabel(lead.email_follow_up_sent_at.slice(0, 10))}` : `Due ${dayLabel(dates.followUpDue)} — one only`}</dd>
+                  </>
+                ) : null}
+              </dl>
             )}
-            <p className="small muted" style={{ marginTop: 8 }}>
-              Evidence never changes the lead or its gates. A SUPPORTED contact source is adopted onto the lead only by recording it above.
+            <p style={{ margin: 'var(--s3) 0 0' }}>
+              <AsOf iso={c.email.asOf} />
             </p>
           </div>
-        </div>
+        </>
       ) : null}
 
-      {/* Missing Intelligence */}
-      {d.missingIntelligence.length ? (
-        <div>
-          <h2>Missing Intelligence ({d.missingIntelligence.length})</h2>
-          <div className="tablewrap">
+      {/* ── History ───────────────────────────────────────────────────── */}
+      {version !== null ? (
+        <>
+          <h2>What happened</h2>
+          {history.length ? <HistoryList entries={history} /> : <p className="muted">Nothing has happened with this company yet.</p>}
+          {systemEntries.length ? (
+            <Disclosure title="Show system changes" meta={`${systemEntries.length} re-checks and audit records`}>
+              <HistoryList entries={systemEntries} />
+            </Disclosure>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* ── Record ────────────────────────────────────────────────────── */}
+      <h2 id="record">Record what happened</h2>
+      <div className="plate">
+        {version === null ? (
+          <p className="muted small" style={{ margin: 0 }}>Changes to this company are recorded with the command-line tools until the database is the source of truth.</p>
+        ) : !writes.canWrite ? (
+          <WritesUnavailable reason={humanizeRefusal(writes.reason)} />
+        ) : (
+          <RecordPanel
+            target={target!}
+            company={lead.company_name}
+            options={options}
+            blocked={c.block.blocked}
+            inQueue={row.queued}
+            whatsappStatus={lead.whatsapp_outreach_status}
+            canSeeContacts={canSeeContacts}
+            canApprove={can('lead.approve')}
+            initialField={recordField ?? null}
+            initialKind={doKind ?? null}
+          />
+        )}
+      </div>
+
+      {/* ── Details: everything technical, one deliberate click away ─────── */}
+      <h2>Details</h2>
+      <Disclosure title="Qualification checks" meta={`${detail.gates.filter(g => g.outcome === 'PASS').length} of ${detail.gates.length} met`}>
+        <div className="gates">
+          {detail.gates.map(g => {
+            const cov = coverageOf(g.gate);
+            return (
+              <div key={g.gate} className="gate">
+                <span>
+                  <strong style={{ fontWeight: 600 }}>{g.label}</strong>
+                  {!g.blocking ? <span className="small muted"> (optional)</span> : null}
+                </span>
+                <span>
+                  <Chip tone={g.outcome === 'FAIL' ? 'stop' : g.outcome === 'PASS' ? 'done' : 'neutral'}>{GATE_OUTCOME_LABELS[g.outcome as keyof typeof GATE_OUTCOME_LABELS]?.label ?? g.outcome}</Chip>
+                  {/* Only say something about the source when there is one; "no source" is already the outcome's own meaning. */}
+                  {cov && (cov.contradicted || (cov.level !== 'NONE' && cov.level !== 'CLAIMED')) ? (
+                    <span className="small muted"> · source: {cov.contradicted ? 'a source disagrees' : EVIDENCE_LEVEL_LABELS[cov.level].toLowerCase()}</span>
+                  ) : null}
+                  <div className="small muted">{GATE_OUTCOME_LABELS[g.outcome as keyof typeof GATE_OUTCOME_LABELS]?.meaning ?? g.meaning}</div>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {cover ? (
+          <p className="small muted" style={{ marginTop: 'var(--s3)' }}>
+            {cover.summary.checked} of {cover.summary.measurable} checks rest on a source a person has checked. The checks themselves are Methodology v1.0’s; evidence does not change them.
+          </p>
+        ) : null}
+        {detail.reasons.length ? (
+          <ul className="small" style={{ margin: 'var(--s3) 0 0', paddingLeft: 18 }}>
+            {detail.reasons.map(r => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        ) : null}
+      </Disclosure>
+
+      <Disclosure title="Scores" meta={detail.scores.kachmoScore !== null ? `${detail.scores.kachmoScore} / 100` : 'not scored'}>
+        <dl className="facts">
+          <dt>Kachmo score</dt>
+          <dd>
+            {detail.scores.kachmoScore ?? '—'} / 100 · {row.priorityLabel}
+          </dd>
+          <dt>Commercial fit</dt>
+          <dd>{detail.scores.commercialFitScore ?? '—'}</dd>
+          <dt>Decision-maker</dt>
+          <dd>{detail.scores.dmQualityScore ?? '—'}</dd>
+          <dt>Website problem</dt>
+          <dd>{detail.scores.painScore ?? '—'}</dd>
+          <dt>Budget</dt>
+          <dd>{detail.scores.budgetScore ?? '—'}</dd>
+          <dt>Reason to act now</dt>
+          <dd>{detail.scores.intentTriggerScore ?? '—'} <span className="small muted">(urgency only — not part of the score)</span></dd>
+        </dl>
+        {detail.scores.signals?.length ? <p className="small muted" style={{ marginTop: 'var(--s3)' }}>Signals: {detail.scores.signals.join(' · ')}</p> : null}
+        <p className="small muted" style={{ margin: 'var(--s2) 0 0' }}>A ranking over what is known, not a probability of winning — none is estimated.</p>
+      </Disclosure>
+
+      <Disclosure id="sources" title="Sources and evidence" meta={`${detail.provenance.length} recorded · ${c.evidence.length} to check`} open={c.evidence.some(e => e.level === 'RETRIEVED' || e.contradictedBy.length > 0)}>
+        {detail.provenance.length ? (
+          <div className="tablewrap" style={{ marginBottom: 'var(--s4)' }}>
             <table>
               <thead>
                 <tr>
-                  <th>Field</th>
-                  <th>What to find</th>
-                  <th>Evidence needed</th>
-                  <th>Record it</th>
+                  <th>About</th>
+                  <th>Source</th>
+                  <th>How far it has been checked</th>
+                  <th>By</th>
                 </tr>
               </thead>
               <tbody>
-                {d.researchTasks.map(t => (
-                  <tr key={t.field}>
-                    <td>{presentField(t.field)}</td>
-                    <td className="wrap">{t.task}</td>
-                    <td className="wrap small muted">{t.evidenceNeeded}</td>
-                    <td className="wrap small">
-                      {version !== null && can('lead.edit') && recordFieldForTask(t.field) ? (
-                        <Link href={`/leads/${row.targetNumber}?record=${recordFieldForTask(t.field)}#record`}>Record {presentField(t.field)} →</Link>
-                      ) : version !== null ? (
-                        <span className="muted">record it on this page</span>
-                      ) : (
-                        <code>{t.recordWith}</code>
-                      )}
+                {detail.provenance.map((p, i) => (
+                  <tr key={`${p.field}-${i}`}>
+                    <td className="wrap">{researchTaskLabel(p.field)}</td>
+                    <td className="wrap small">{p.sourceUrl ? <SafeLink url={p.sourceUrl} /> : <span className="muted">{p.sourceType}</span>}</td>
+                    <td className="small">{p.evidenceLevel === 'URL_SHAPED' ? 'Link recorded, not opened' : 'No link'}</td>
+                    <td className="small">
+                      {actorName(p.recordedBy)}
+                      {p.recordedOn ? ` · ${dayLabel(p.recordedOn)}` : ''}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      ) : null}
-
-      {/* Outreach State Machine */}
-      <div>
-        <h2>Outreach & Sales State</h2>
-        <div className="grid2">
-          <div className="panel">
-            <h3 className="small muted" style={{ margin: '0 0 8px' }}>
-              Titan Email Ledger (Read-only)
-            </h3>
-            <dl className="kv">
-              <dt>Status</dt>
-              <dd>{d.emailLedger.status ?? <span className="muted">Not in ledger</span>}</dd>
-              <dt>Batch</dt>
-              <dd>{d.emailLedger.batch ?? '—'}</dd>
-              <dt>Sent date</dt>
-              <dd>{d.emailLedger.sentDate ?? '—'}</dd>
-              <dt>Follow-up due</dt>
-              <dd>{d.emailLedger.followUpDue ?? '—'}</dd>
-              <dt>Follow-up sent</dt>
-              <dd>{lead.email_follow_up_sent_at ?? <span className="muted">Not sent (1 bump only)</span>}</dd>
-            </dl>
-          </div>
-          <div className="panel">
-            <h3 className="small muted" style={{ margin: '0 0 8px' }}>
-              Call & Pipeline State
-            </h3>
-            <dl className="kv">
-              <dt>Call attempts</dt>
-              <dd>{lead.call_attempts?.length ?? 0}{lead.call_status ? ` — last: ${lead.call_status}` : ''}</dd>
-              <dt>WhatsApp</dt>
-              <dd>{lead.whatsapp_outreach_status ?? <span className="muted">Not started</span>}</dd>
-              <dt>Response</dt>
-              <dd>{lead.response_status ?? '—'}</dd>
-              <dt>Meeting</dt>
-              <dd>{lead.meeting_status ?? '—'}</dd>
-              <dt>Proposal</dt>
-              <dd>{lead.proposal_status ?? '—'}</dd>
-              <dt>Deal stage</dt>
-              <dd>{lead.deal_stage ?? '—'}{lead.deal_value ? ` (${lead.deal_value})` : ''}</dd>
-            </dl>
-          </div>
-        </div>
-      </div>
-
-      {/* Call History */}
-      {lead.call_attempts?.length ? (
-        <div>
-          <h2>Call History</h2>
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>By</th>
-                  <th>Outcome</th>
-                  <th>Objection</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lead.call_attempts.map((a, i) => (
-                  <tr key={`${a.at}-${i}`}>
-                    <td>{a.at.slice(0, 16).replace('T', ' ')}</td>
-                    <td>{a.by}</td>
-                    <td><span className="badge">{a.outcome}</span></td>
-                    <td className="small">{a.objection_category ?? '—'}</td>
-                    <td className="wrap small">{a.notes ?? '—'}</td>
+        ) : (
+          <p className="muted small">No source is recorded for this company’s research.</p>
+        )}
+        {version !== null ? (
+          c.evidence.length ? (
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Claim</th>
+                    <th>Source</th>
+                    <th>Checked?</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      {/* History (Phase C, ADR-029) */}
-      {version !== null ? (
-        <div>
-          <h2>History ({timeline.length})</h2>
-          <div className="panel">
-            {timeline.length ? (
-              <div className="tablewrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>What</th>
-                      <th>Who</th>
-                      <th>Details</th>
+                </thead>
+                <tbody>
+                  {c.evidence.map(e => (
+                    <tr key={e.id}>
+                      <td className="wrap small">
+                        <strong>{fieldNoun(e.field)}</strong>
+                        {e.claimValue ? <div className="muted">{e.claimValue}</div> : null}
+                        <div className="muted">recorded by {e.recordedBy ?? '—'}</div>
+                      </td>
+                      <td className="wrap small">
+                        {e.sourceUrl ? <SafeLink url={e.sourceUrl}>{e.sourceDomain ?? e.sourceUrl}</SafeLink> : <span className="muted">no link</span>}
+                        {e.retrieval ? (
+                          <div className="muted">
+                            page fetched {dayLabel(e.retrieval.fetchedAt.slice(0, 10))}
+                            {e.freshness === 'SOURCE_CHANGED' ? ' · the page changed after it was checked' : ''}
+                            {e.freshness === 'STALE' ? ` · ${e.ageDays} days old` : ''}
+                          </div>
+                        ) : e.failedAttempts ? (
+                          <div className="muted">{e.failedAttempts} failed attempt(s) to fetch it</div>
+                        ) : null}
+                      </td>
+                      <td className="wrap small">
+                        <Chip tone={e.level === 'SUPPORTED' ? 'done' : e.level === 'CONTRADICTED' || e.contradictedBy.length ? 'stop' : 'neutral'}>
+                          {e.contradictedBy.length ? 'A source disagrees' : EVIDENCE_LEVEL_LABELS[e.level]}
+                        </Chip>
+                        {e.reviewStatus !== 'UNREVIEWED' ? (
+                          <div className="muted" style={{ marginTop: 4 }}>
+                            {e.reviewStatus === 'CHECKED' ? 'Checked' : 'Not supported'} by {e.reviewedBy ?? '—'}
+                            {e.supportingExcerpt && canSeeContacts ? <blockquote style={{ margin: '4px 0 0' }}>“{e.supportingExcerpt}”</blockquote> : null}
+                            {e.reviewNote ? <div>{e.reviewNote}</div> : null}
+                          </div>
+                        ) : e.level === 'RETRIEVED' && can('evidence.review') && canSeeContacts && writes.canWrite && !e.contradictsEvidenceId ? (
+                          <EvidenceReviewForm evidenceId={e.id} targetNumber={lead.target_number} />
+                        ) : e.level === 'URL_SHAPED' ? (
+                          <div className="muted" style={{ marginTop: 4 }}>
+                            The page hasn’t been fetched yet.
+                          </div>
+                        ) : null}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {timeline.map((e, i) => (
-                      <tr key={`${e.at}-${e.kind}-${i}`}>
-                        <td className="small" style={{ whiteSpace: 'nowrap' }}>{e.at.slice(0, 16).replace('T', ' ')}</td>
-                        <td className="small"><span className="badge">{e.kind}</span></td>
-                        <td className="small">{e.actor}</td>
-                        <td className="wrap small muted">{e.details.join(' · ') || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="empty">Nothing recorded against this lead yet.</p>
-            )}
-            <p className="small muted" style={{ marginTop: 8 }}>
-              Domain events, audited actions and call attempts, newest first. Contact values are never written to either log.
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted small" style={{ margin: 0 }}>No claim is waiting to be checked. A link recorded with research appears here to be fetched and checked.</p>
+          )
+        ) : null}
+      </Disclosure>
+
+      {detail.researchTasks.length ? (
+        <Disclosure title="Missing information" meta={`${detail.researchTasks.length} to find`}>
+          <ul className="rows">
+            {detail.researchTasks.map(t => {
+              const field = recordFieldForTask(t.field);
+              return (
+                <li key={t.field} className="work">
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ fontWeight: 600 }}>Find {researchTaskLabel(t.field)}</strong>
+                    <p className="sentence muted">{t.evidenceNeeded}</p>
+                  </div>
+                  <div className="aside">
+                    {recordable && field && can('lead.edit') ? (
+                      <Link className="btn btn-sm" href={`?record=${field}#record`}>
+                        Record it
+                      </Link>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Disclosure>
+      ) : null}
+
+      {detail.duplicates.length ? (
+        <Disclosure title="Possible duplicates" meta={`${detail.duplicates.length}`} open>
+          {detail.duplicates.map((d, i) => (
+            <p key={i} className="small" style={{ margin: '0 0 var(--s1)' }}>
+              <Link href={`/leads/${d.targetNumber === lead.target_number ? d.duplicateOf : d.targetNumber}`}>#{d.targetNumber === lead.target_number ? d.duplicateOf : d.targetNumber}</Link> — {d.reason}
             </p>
-          </div>
-        </div>
+          ))}
+        </Disclosure>
       ) : null}
 
-      {/* Duplicates */}
-      {d.duplicates.length ? (
-        <div>
-          <h2>Possible Duplicates</h2>
-          <div className="panel small">
-            {d.duplicates.map((dup, i) => (
-              <p key={i} style={{ margin: '0 0 4px' }}>
-                <Link href={`/leads/${dup.duplicateOf}`}>{dup.duplicateOf}</Link> — {dup.reason}
-              </p>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Canonical Identity */}
-      <div>
-        <h2>System Identity</h2>
-        <div className="panel small">
-          <dl className="kv">
-            <dt>Lead ID</dt>
-            <dd><code>{lead.lead_id}</code></dd>
-            <dt>Website</dt>
-            <dd>
-              {lead.website_url ? (
-                <a href={lead.website_url} rel="noreferrer noopener nofollow" target="_blank">
-                  {lead.website_url}
-                </a>
-              ) : (
-                <span className="muted">—</span>
-              )}
-            </dd>
-            <dt>Created</dt>
-            <dd>{lead.created_at.slice(0, 10)}</dd>
-            <dt>Updated</dt>
-            <dd>{lead.updated_at.slice(0, 10)}</dd>
-            <dt>Timezone</dt>
-            <dd>{lead.timezone ?? <span className="muted">Unresolved</span>}</dd>
-          </dl>
-        </div>
-      </div>
-    </div>
-  );
-
-  return (
-    <>
-      <p className="crumb">
-        <Link href="/leads">← Leads</Link>
-      </p>
-
-      {/* Header */}
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: '18px', color: 'var(--ink-muted)', marginRight: 8 }}>
-              {row.targetNumber}
-            </span>
-            {lead.company_name}
-          </h1>
-          <p className="muted small" style={{ margin: '4px 0 0' }}>
-            {d.archetypeName} · {lead.location_city ? `${lead.location_city}, ` : ''}{lead.location_country} · research {lead.research_completeness_score}% complete
+      <Disclosure title="System record" meta={detail.drift.length ? 'stored checks are out of date' : `version ${version ?? '—'}`}>
+        <dl className="facts">
+          <dt>Lead id</dt>
+          <dd>
+            <code>{lead.lead_id}</code>
+          </dd>
+          <dt>Number</dt>
+          <dd className="mono">{lead.target_number}</dd>
+          <dt>Version</dt>
+          <dd>{version ?? '—'}</dd>
+          <dt>Research state</dt>
+          <dd className="mono small">{lead.research_state}</dd>
+          <dt>Email records</dt>
+          <dd className="mono small">{detail.emailLedger.status ?? '—'}{detail.emailLedger.batch ? ` · ${detail.emailLedger.batch}` : ''}</dd>
+          <dt>Timezone</dt>
+          <dd>{lead.timezone ?? <span className="muted">not resolved</span>}</dd>
+          <dt>Created · updated</dt>
+          <dd>
+            {lead.created_at.slice(0, 10)} · {lead.updated_at.slice(0, 10)}
+          </dd>
+          <dt>Owner</dt>
+          <dd>{actorName(lead.owner)}</dd>
+        </dl>
+        {detail.drift.length ? (
+          <p className="small" style={{ marginTop: 'var(--s3)' }}>
+            The stored checks differ from what the engine computes now: {detail.drift.slice(0, 3).join('; ')}
+            {detail.drift.length > 3 ? ` — and ${detail.drift.length - 3} more` : ''}. An owner can refresh them — see <Link href="/settings">Settings</Link>.
           </p>
-        </div>
-        <div className="row" style={{ gap: 6 }}>
-          <span className="badge">{row.priorityLabel}</span>
-          <StatusBadge
-            label={row.suppressed ? 'Do not contact' : presentStatus(row.researchState)}
-            tone={row.suppressed ? 'bad' : presentTone(row.researchState)}
-          />
-        </div>
-      </div>
-
-      {d.suppression.suppressed ? (
-        <div className="notice" style={{ marginTop: 12, marginBottom: 16 }}>
-          <p>
-            <strong>This company must not be contacted.</strong> {d.suppression.reason}
-          </p>
-        </div>
-      ) : null}
-
-      {d.drift.length ? (
-        <div className="notice" style={{ marginTop: 12, marginBottom: 16 }}>
-          <p>
-            <strong>The stored state of this lead is behind the engine.</strong> Run a re-evaluation
-            (<code>npm --prefix os run leads:reevaluate</code>) to bring it up to date: {d.drift.slice(0, 3).join('; ')}
-            {d.drift.length > 3 ? ` — and ${d.drift.length - 3} more` : ''}.
-          </p>
-        </div>
-      ) : null}
-
-      {/* Progressive Disclosure Component: Simple Overview vs Full Intelligence */}
-      <DetailDisclosure simpleView={simpleView} intelligenceView={intelligenceView} />
+        ) : null}
+      </Disclosure>
     </>
   );
 }

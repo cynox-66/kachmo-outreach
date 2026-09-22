@@ -1,5 +1,16 @@
 # Start Here: Executive Onboarding & System Guide
 
+> [!WARNING]
+> **Historical document — this is not the system in this repository.** It describes the original "Lead Engine" plan
+> (Google Sheets as the database, Gemini, Playwright, "never build a custom dashboard"), which was never built. The
+> system here is the **Outbound OS**: a Next.js application over Postgres around the `core/` engine, with Titan owning
+> email. Start with the current documents instead:
+> [`OPERATOR_EXPERIENCE.md`](OPERATOR_EXPERIENCE.md) (how it is used) ·
+> [`../os/README.md`](../os/README.md) (how it is built and run) ·
+> [`../audit/PRODUCTION_AUDIT_2026-09-22.md`](../audit/PRODUCTION_AUDIT_2026-09-22.md) (current state and risks) ·
+> [`adr/`](adr/) (ADR-009 onwards are current).
+
+
 > **Status:** Canonical & Active  
 > **Audience:** Senior / Principal Engineer & Solo Operator  
 > **Last Updated:** 2026-08-09  

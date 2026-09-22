@@ -150,7 +150,14 @@ group('3. Today shows each person only work they may do');
   const all = await getToday(owner, { snapshot });
   assert(all.items.length > 0 && all.source === 'POSTGRES', `the owner sees the whole list (${all.items.length} items)`);
   assert(all.items.every(i => !!i.href), 'every item links to where the work happens');
-  assert(all.items.filter(i => i.kind === 'CALL_READY').every(i => i.href === '/calls') && all.items.filter(i => i.kind === 'REPLY_WAITING').every(i => i.href === '/email'), 'calls link to the call queue and email work to the ledger');
+  // Operator redesign (ADR-035): a call opens its own card in the call queue; email work opens the company, where its
+  // email history and the next step are — the email itself is still sent from the studio inbox, never from the app.
+  assert(
+    all.items.filter(i => i.kind === 'CALL_READY').every(i => i.href === `/calls#call-${i.targetNumber}`) &&
+      all.items.filter(i => i.kind === 'REPLY_WAITING' || i.kind === 'EMAIL_FOLLOW_UP_DUE').every(i => i.href === `/leads/${i.targetNumber}`),
+    'calls link to their card in the call queue and email work to the company'
+  );
+  assert(all.items.every(i => i.line.action && !/\bsend\b/i.test(i.line.action)), 'no work item offers to send anything: the app sends nothing');
 
   const intern = await getToday(actorWith('INTERN'), { snapshot });
   assert(intern.items.every(i => i.kind === 'RESEARCH' || i.kind === 'FOLLOW_UP_DUE'), 'an intern sees no outreach, review or approval work', [...new Set(intern.items.map(i => i.kind))]);

@@ -1,300 +1,224 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
 import { listReports, listCandidates, listBriefs, listApprovedPendingExport } from '@/server/research/service';
-import { listLeads } from '@/server/services/leads';
-import { presentStatus } from '@/server/services/presentation';
-import { ActionCard } from '../components/ActionCard';
-import { EmptyState } from '../components/EmptyState';
+import { getResearchQueue } from '@/server/services/research-queue';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { dayLabel, researchTaskLabel } from '@/server/services/operator';
+import { Chip, Disclosure, EmptyNote, PageHead } from '../components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Research' };
 
-const STATUS_BADGE: Record<string, string> = {
-  AWAITING_REVIEW: 'info',
-  DUPLICATE_SUSPECTED: 'warn',
-  FLAGGED_CONTRADICTION: 'bad',
-  INCOMPLETE: 'warn',
-  SUPPRESSED: 'bad',
-  ACCEPTED: 'ok',
-  REJECTED: '',
-  DEFERRED: '',
+/** Suggested-company statuses in operator words. */
+const CANDIDATE_STATUS: Record<string, { label: string; tone: 'act' | 'stop' | 'neutral' }> = {
+  AWAITING_REVIEW: { label: 'Ready to review', tone: 'act' },
+  DUPLICATE_SUSPECTED: { label: 'May already be in the list', tone: 'neutral' },
+  FLAGGED_CONTRADICTION: { label: 'Sources disagree', tone: 'stop' },
+  INCOMPLETE: { label: 'Missing facts', tone: 'neutral' },
+  SUPPRESSED: { label: 'On the do-not-contact list', tone: 'stop' },
+  DEFERRED: { label: 'Deferred', tone: 'neutral' },
 };
 
 /**
- * RESEARCH — Action-oriented research workspace.
- *
- * Focuses first on "What research needs to happen?", showing the highest-priority
- * leads with missing intelligence, followed by candidate review and uploaded reports.
+ * RESEARCH — what to find next, and the companies research suggests. Suggested companies only become companies in the
+ * list when a person approves them; the do-not-contact list is re-checked at that moment.
  */
 export default async function ResearchPage() {
   const actor = await requirePermission('research.create');
-  const [reports, candidates, briefs, approved, researchLeadsResult] = await Promise.all([
-    listReports(20),
-    listCandidates({ limit: 100 }),
-    listBriefs(10),
-    listApprovedPendingExport(),
-    listLeads({ researchState: 'RESEARCH_REQUIRED', sort: 'priority', pageSize: 8 }),
-  ]);
-
+  const snap = await requestSnapshot();
+  const [reports, candidates, briefs, approved, queue] = await Promise.all([listReports(20), listCandidates({ limit: 100 }), listBriefs(10), listApprovedPendingExport(), getResearchQueue(actor, { mine: false, snapshot: snap })]);
   const canApprove = actor.permissions.has('research.approve');
-  const openBriefsCount = briefs.filter(b => b.status === 'OPEN').length;
+  const canRecord = actor.permissions.has('lead.edit') && queue.source === 'POSTGRES';
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1>Research</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            {researchLeadsResult.total} leads currently need more intelligence
-          </p>
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          <Link className="badge ghost" href="/inventory" style={{ textDecoration: 'none' }}>
-            Inventory gaps →
-          </Link>
-          <Link className="badge ghost" href="/research/briefs" style={{ textDecoration: 'none' }}>
-            Briefs ({openBriefsCount})
-          </Link>
-          <Link className="badge" href="/research/upload" style={{ textDecoration: 'none' }}>
-            Upload report
-          </Link>
-        </div>
-      </div>
+      <PageHead
+        title="Research"
+        sub="Find the facts the next step needs, and review the new companies research suggests."
+        aside={
+          actor.permissions.has('research.upload') ? (
+            <Link className="btn" href="/research/upload">
+              Upload research
+            </Link>
+          ) : null
+        }
+      />
 
-      <p className="lede" style={{ marginBottom: 20 }}>
-        External research produces <strong>candidates</strong>. They become canonical leads only when a human approves
-        them — suppression is re-checked at approval time, never trusted from extraction.
-      </p>
-
-      {/* ── METRICS OVERVIEW ──────────────────────────────────────────────── */}
-      <dl className="stats" style={{ marginBottom: 24 }}>
-        <div>
-          <dt>Leads Needing Research</dt>
-          <dd>{researchLeadsResult.total}</dd>
-        </div>
-        <div>
-          <dt>Candidates In Review</dt>
-          <dd>{candidates.length}</dd>
-        </div>
-        <div>
-          <dt>Approved (Queued)</dt>
-          <dd>{approved.length}</dd>
-        </div>
-        <div>
-          <dt>Reports Ingested</dt>
-          <dd>{reports.length}</dd>
-        </div>
-      </dl>
-
-      {/* ── SECTION 1: LEADS NEEDING RESEARCH ─────────────────────────────── */}
-      <div className="row between" style={{ alignItems: 'baseline', marginBottom: 8 }}>
-        <h2>What Needs Research Right Now</h2>
-        <Link href="/leads?state=RESEARCH_REQUIRED" className="small muted" style={{ textDecoration: 'none' }}>
-          View all {researchLeadsResult.total} leads →
+      <div className="group-head">
+        <h2>Companies that need research</h2>
+        <Link className="small" href="/research/queue">
+          All {queue.items.length} →
         </Link>
       </div>
-
-      {researchLeadsResult.rows.length === 0 ? (
-        <EmptyState
-          title="No leads currently need research."
-          description="Every lead in the system has complete verified information."
-          style={{ marginBottom: 24 }}
-        />
+      {queue.items.length ? (
+        <ul className="rows">
+          {queue.items.slice(0, 8).map(i => {
+            const t = i.tasks[0];
+            return (
+              <li key={i.targetNumber} className="work">
+                <div style={{ minWidth: 0 }}>
+                  <div className="who-line">
+                    <Link className="company" href={`/leads/${i.targetNumber}`}>
+                      {i.company}
+                    </Link>
+                    <span className="where mono">{i.priority === 'UNSCORED' ? '' : `Priority ${i.priority}`}</span>
+                  </div>
+                  <p className="sentence">
+                    Find {t ? researchTaskLabel(t.field) : 'the missing facts'}
+                    {i.tasks.length > 1 ? <span className="muted"> · {i.tasks.length - 1} more after that</span> : null}
+                  </p>
+                </div>
+                <div className="aside">
+                  {canRecord && t?.recordField ? (
+                    <Link className="btn btn-sm" href={`/leads/${i.targetNumber}?record=${t.recordField}#record`}>
+                      Add research
+                    </Link>
+                  ) : (
+                    <Link className="btn btn-sm" href={`/leads/${i.targetNumber}`}>
+                      Open company
+                    </Link>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
-          {researchLeadsResult.rows.map(r => (
-            <ActionCard
-              key={r.leadId}
-              title={r.company}
-              targetNumber={r.targetNumber}
-              subtitle={`${r.archetype}${r.vertical ? ` · ${r.vertical}` : ''} · ${r.city ? `${r.city}, ` : ''}${r.country}`}
-              what={r.nextAction ?? 'Identify decision-maker and direct contact route'}
-              why={r.contactability.callable || r.contactability.emailable ? 'Contact routes exist, but further evidence verification is needed.' : 'Missing verified contact routes and decision-maker provenance.'}
-              owner={r.owner}
-              due={r.nextActionDate}
-              statusBadge={r.priorityLabel}
-              actionHref={`/leads/${r.targetNumber}`}
-              actionLabel="Research lead →"
-              secondaryHref={`/leads/${r.targetNumber}`}
-              secondaryLabel="View intelligence"
-            />
-          ))}
-        </div>
+        <EmptyNote title="No company is waiting for research." />
       )}
 
-      {/* ── SECTION 2: CANDIDATES AWAITING REVIEW ─────────────────────────── */}
-      <h2>Candidates Awaiting Review ({candidates.length})</h2>
+      <div className="group-head">
+        <h2>Suggested companies to review</h2>
+        <span className="label">{candidates.length}</span>
+      </div>
       {candidates.length ? (
-        <div className="tablewrap" style={{ marginBottom: 28 }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Archetype</th>
-                <th>Geography</th>
-                <th>Status</th>
-                <th>Assessment</th>
-                <th>Extracted</th>
-                <th style={{ textAlign: 'right' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {candidates.map(c => {
-                const a = c.assessment as { reason?: string } | null;
-                return (
-                  <tr key={c.id}>
-                    <td>
-                      <strong>{c.companyName ?? <span className="muted">unnamed</span>}</strong>
-                    </td>
-                    <td className="small muted">{c.archetypeId ?? '—'}</td>
-                    <td className="small">{c.locationCountry ?? '—'}</td>
-                    <td>
-                      <span className={`badge ${STATUS_BADGE[c.status] ?? ''}`}>
-                        {presentStatus(c.status)}
-                      </span>
-                    </td>
-                    <td className="wrap small muted">{a?.reason ?? '—'}</td>
-                    <td className="small">{c.createdAt.toISOString().slice(0, 10)}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Link className="badge ghost" href={`/research/candidates/${c.id}`} style={{ textDecoration: 'none' }}>
-                        {canApprove ? 'Review →' : 'View →'}
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ul className="rows">
+          {candidates.map(c => {
+            const s = CANDIDATE_STATUS[c.status] ?? { label: c.status.toLowerCase().replace(/_/g, ' '), tone: 'neutral' as const };
+            const a = c.assessment as { reason?: string } | null;
+            return (
+              <li key={c.id} className="work">
+                <div style={{ minWidth: 0 }}>
+                  <div className="who-line">
+                    <Link className="company" href={`/research/candidates/${c.id}`}>
+                      {c.companyName ?? 'Unnamed company'}
+                    </Link>
+                    <span className="where">
+                      {c.locationCountry ?? ''} · suggested {dayLabel(c.createdAt.toISOString().slice(0, 10))}
+                    </span>
+                  </div>
+                  {a?.reason ? <p className="sentence muted">{a.reason}</p> : null}
+                </div>
+                <div className="aside">
+                  <Chip tone={s.tone}>{s.label}</Chip>
+                  <Link className="btn btn-sm" href={`/research/candidates/${c.id}`}>
+                    {canApprove ? 'Review' : 'View'}
+                  </Link>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
-        <EmptyState
-          title="No candidates waiting in review."
-          description="Upload an external research report to extract and assess new candidates."
-          style={{ marginBottom: 28 }}
-        />
+        <EmptyNote title="No suggested companies are waiting." action={actor.permissions.has('research.upload') ? { href: '/research/upload', label: 'Upload research' } : undefined}>
+          Upload a research report and the companies it names appear here for review.
+        </EmptyNote>
       )}
 
-      {/* ── SECTION 3: APPROVED CANDIDATES QUEUE ──────────────────────────── */}
       {approved.length ? (
-        <div style={{ marginBottom: 28 }}>
-          <h2>Approved Candidates ({approved.length})</h2>
-          <div className="notice" style={{ marginBottom: 12 }}>
-            <p className="small">
-              These candidates were approved by a human operator and are queued for canonical import.
+        <div className="plate act banner" style={{ marginTop: 'var(--s5)' }}>
+          <span className="chip act">Needs an owner</span>
+          <div className="body">
+            <p>
+              <strong>
+                {approved.length} approved suggestion{approved.length === 1 ? ' was' : 's were'} never added to the list.
+              </strong>{' '}
+              They were approved before the database became the source of truth. An owner needs to add or re-review them:{' '}
+              {approved.map((c, i) => (
+                <span key={c.id}>
+                  {i ? ', ' : ''}
+                  <Link href={`/research/candidates/${c.id}`}>{c.companyName ?? c.candidateId}</Link>
+                </span>
+              ))}
+              .
             </p>
           </div>
+        </div>
+      ) : null}
+
+      <h2>Research material</h2>
+      <Disclosure title="Uploaded reports" meta={`${reports.length}`}>
+        {reports.length ? (
           <div className="tablewrap">
             <table>
               <thead>
                 <tr>
-                  <th>Company</th>
-                  <th>Domain</th>
-                  <th>Approved By</th>
+                  <th>Report</th>
+                  <th>From</th>
+                  <th>Read</th>
+                  <th className="num">Problems</th>
                   <th>When</th>
                 </tr>
               </thead>
               <tbody>
-                {approved.map(c => (
-                  <tr key={c.id}>
-                    <td>
-                      <Link href={`/research/candidates/${c.id}`} style={{ textDecoration: 'none', fontWeight: 550 }}>
-                        {c.companyName ?? c.candidateId}
-                      </Link>
+                {reports.map(r => {
+                  const errors = (r.problems as Array<{ severity: string }>).filter(p => p.severity === 'ERROR').length;
+                  return (
+                    <tr key={r.id}>
+                      <td className="wrap small">
+                        {r.originalFilename}
+                        <div className="muted mono">{r.sourceReportId}</div>
+                      </td>
+                      <td className="small">
+                        {r.provider} · {r.operatorLabel}
+                      </td>
+                      <td className="small">{r.extractionStatus === 'OK' ? 'Fully' : r.extractionStatus === 'FAILED' ? 'Could not be read' : 'Partly'}</td>
+                      <td className="num">{errors || (r.problems as unknown[]).length}</td>
+                      <td className="small nowrap">{dayLabel(r.ingestedAt.toISOString().slice(0, 10))}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted small">No report has been uploaded yet.</p>
+        )}
+      </Disclosure>
+      <Disclosure title="Research briefs" meta={`${briefs.filter(b => b.status === 'OPEN').length} open`}>
+        <p className="small muted" style={{ marginTop: 0 }}>
+          A brief tells an outside researcher exactly what to find. <Link href="/research/briefs">Write or open a brief →</Link>
+        </p>
+        {briefs.length ? (
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Brief</th>
+                  <th>Where</th>
+                  <th className="num">Companies</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {briefs.map(b => (
+                  <tr key={b.id}>
+                    <td className="small">
+                      <Link href={`/research/briefs?open=${b.id}`}>{b.promptId}</Link>
                     </td>
-                    <td className="small muted">{c.websiteDomain ?? '—'}</td>
-                    <td className="small">{c.reviewedByLabel ?? '—'}</td>
-                    <td className="small">{c.reviewedAt?.toISOString().slice(0, 10) ?? '—'}</td>
+                    <td className="small">{(b.geographies as string[]).join(', ')}</td>
+                    <td className="num">{b.targetCount}</td>
+                    <td className="small">{b.status.toLowerCase()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      ) : null}
-
-      {/* ── SECTION 4: INGESTED REPORTS ───────────────────────────────────── */}
-      <h2>Ingested Reports ({reports.length})</h2>
-      <div className="tablewrap" style={{ marginBottom: 28 }}>
-        <table>
-          <thead>
-            <tr>
-              <th>Report</th>
-              <th>Provider</th>
-              <th>Operator</th>
-              <th>File</th>
-              <th>Status</th>
-              <th>Extraction</th>
-              <th className="num">Issues</th>
-              <th>When</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map(r => {
-              const errors = (r.problems as Array<{ severity: string }>).filter(p => p.severity === 'ERROR').length;
-              return (
-                <tr key={r.id}>
-                  <td className="small"><code>{r.sourceReportId}</code></td>
-                  <td className="small">{r.provider}</td>
-                  <td className="small">{r.operatorLabel}</td>
-                  <td className="small muted">{r.originalFilename} ({r.format})</td>
-                  <td><span className="badge">{r.stage.replace(/_/g, ' ').toLowerCase()}</span></td>
-                  <td>
-                    <span className={`badge ${r.extractionStatus === 'OK' ? 'ok' : r.extractionStatus === 'FAILED' ? 'bad' : 'warn'}`}>
-                      {r.extractionStatus}
-                    </span>
-                  </td>
-                  <td className="num">{errors ? <span className="badge bad">{errors}</span> : (r.problems as unknown[]).length}</td>
-                  <td className="small">{r.ingestedAt.toISOString().slice(0, 10)}</td>
-                </tr>
-              );
-            })}
-            {reports.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="empty">No report has been uploaded yet.</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── SECTION 5: RESEARCH BRIEFS ────────────────────────────────────── */}
-      <h2>Research Briefs ({briefs.length})</h2>
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Brief ID</th>
-              <th>Archetype</th>
-              <th>Geography</th>
-              <th className="num">Target Count</th>
-              <th>Status</th>
-              <th>Created By</th>
-              <th style={{ textAlign: 'right' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {briefs.map(b => (
-              <tr key={b.id}>
-                <td className="small"><code>{b.promptId}</code></td>
-                <td className="small">{b.archetypeId}{b.vertical ? ` · ${b.vertical}` : ''}</td>
-                <td className="small">{(b.geographies as string[]).join(', ')}</td>
-                <td className="num">{b.targetCount}</td>
-                <td><span className="badge">{b.status}</span></td>
-                <td className="small">{b.createdByLabel}</td>
-                <td style={{ textAlign: 'right' }}>
-                  <Link className="badge ghost" href={`/research/briefs?open=${b.id}`} style={{ textDecoration: 'none' }}>
-                    Open →
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {briefs.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="empty">No research brief active.</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+        ) : null}
+      </Disclosure>
+      <p className="small muted" style={{ marginTop: 'var(--s4)' }}>
+        <Link href="/inventory">Where are we running low on companies?</Link>
+      </p>
     </>
   );
 }

@@ -1,15 +1,25 @@
 'use client';
-import { useActionState } from 'react';
+import { useActionState, startTransition, type FormEvent } from 'react';
 import { uploadReportAction, type ActionState } from '@/server/research/actions';
 
 const INITIAL: ActionState = { error: null };
 
-/** Paste or attach. Everything is validated server-side before a byte is parsed. */
+/**
+ * Paste or attach. Everything is validated server-side before a byte is parsed. Submitted through a transition rather
+ * than as a form action, so a refused upload keeps the pasted report instead of wiping it (React resets a form
+ * action's fields before it runs).
+ */
 export function UploadForm({ briefs }: { briefs: Array<{ id: string; promptId: string }> }) {
-  const [state, action, pending] = useActionState(uploadReportAction, INITIAL);
+  const [state, dispatch, pending] = useActionState(uploadReportAction, INITIAL);
+  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (pending) return;
+    const data = new FormData(e.currentTarget);
+    startTransition(() => dispatch(data));
+  };
 
   return (
-    <form action={action} className="panel">
+    <form onSubmit={onSubmit} className="panel">
       {state.error ? (
         <div className="notice">
           <p><strong>{state.error}</strong></p>
@@ -20,7 +30,7 @@ export function UploadForm({ briefs }: { briefs: Array<{ id: string; promptId: s
         <div className="notice">
           <p><strong>{state.ok}</strong></p>
           {state.details?.slice(0, 12).map(d => <p key={d} className="small">{d}</p>)}
-          <p className="small">Review them on the <a href="/research">Research</a> page.</p>
+          <p className="small">Review the suggested companies on the <a href="/research">Research</a> page.</p>
         </div>
       ) : null}
 
@@ -68,8 +78,8 @@ export function UploadForm({ briefs }: { briefs: Array<{ id: string; promptId: s
       </label>
 
       <div className="row" style={{ marginTop: 14 }}>
-        <button type="submit" disabled={pending}>{pending ? 'Parsing…' : 'Upload and extract'}</button>
-        <span className="small muted">Nothing uploaded is ever executed. The file is stored verbatim and hashed.</span>
+        <button type="submit" className="btn-act" disabled={pending}>{pending ? 'Reading…' : 'Upload'}</button>
+        <span className="small muted">Nothing uploaded is ever run. The file is stored exactly as it is.</span>
       </div>
     </form>
   );

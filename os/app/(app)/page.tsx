@@ -1,233 +1,157 @@
 import Link from 'next/link';
-import { requirePermission, requireActor } from '@/server/auth/current-actor';
-import { getDashboard } from '@/server/services/dashboard';
-import { getToday } from '@/server/services/today';
-import { ActionCard } from './components/ActionCard';
-import { EmptyState } from './components/EmptyState';
+import { requirePermission } from '@/server/auth/current-actor';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { getToday, type TodayView } from '@/server/services/today';
+import { senderStatus } from '@/server/services/sender';
+import { dayLabel } from '@/server/services/operator';
+import { AsOf, Banner, Chip, EmptyNote, PageHead } from './components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Today' };
 
 /**
- * TODAY — Kachmo's operational workspace.
+ * TODAY — "what needs me?" (docs/OPERATOR_EXPERIENCE.md §4.1).
  *
- * Answers five core operator questions:
- * 1. What needs my attention today?
- * 2. Which client does it concern?
- * 3. Why does it need attention?
- * 4. What should I do next?
- * 5. Where do I click?
- *
- * All metrics and actions are derived by core/ from canonical state.
- * No priority algorithm or scoring band is invented here.
+ * Order is urgency, not data source: things that stop outreach, then people waiting on a reply, then what is due, then
+ * what can wait. Each item is one plain sentence built from the stored facts core selected it with, and one button
+ * named for what happens next. Nothing here sends anything.
  */
-/** What each kind of work item asks for, and the button that takes the operator there (ADR-028). */
-const KIND_PRESENTATION: Record<string, { label: string; action: string; severity: 'critical' | 'warn' | 'info' | 'normal' }> = {
-  REPLY_WAITING: { label: 'Reply waiting', action: 'Answer in Titan', severity: 'critical' },
-  POSITIVE_NO_MEETING: { label: 'Positive reply, no meeting', action: 'Book a meeting', severity: 'critical' },
-  FOLLOW_UP_DUE: { label: 'Follow-up due', action: 'Open lead', severity: 'warn' },
-  EMAIL_FOLLOW_UP_DUE: { label: 'Email follow-up due', action: 'Send in Titan', severity: 'warn' },
-  WHATSAPP_TO_SEND: { label: 'WhatsApp approved — send it', action: 'Open WhatsApp', severity: 'warn' },
-  CALL_READY: { label: 'Ready to call', action: 'Open call card', severity: 'info' },
-  WHATSAPP_TO_APPROVE: { label: 'WhatsApp draft to review', action: 'Review draft', severity: 'info' },
-  EVIDENCE_CONTRADICTION: { label: 'Source contradicts the record', action: 'Correct the lead', severity: 'critical' },
-  CANDIDATE_REVIEW: { label: 'Research candidate to review', action: 'Review candidate', severity: 'info' },
-  EVIDENCE_RECHECK: { label: 'Source changed since it was checked', action: 'Re-check evidence', severity: 'warn' },
-  EVIDENCE_REVIEW: { label: 'Source to check', action: 'Check evidence', severity: 'info' },
-  RESEARCH: { label: 'Research to unblock', action: 'Record research', severity: 'normal' },
-};
+type Item = TodayView['items'][number];
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ who?: string }> }) {
-  await requirePermission('lead.view');
-  const actor = await requireActor();
+const GROUPS: Array<{ urgency: Item['line']['urgency']; title: string; empty?: string; show: number }> = [
+  { urgency: 'now', title: 'Needs you now', show: 20 },
+  { urgency: 'today', title: 'Due today', show: 10 },
+  { urgency: 'later', title: 'When you have time', show: 5 },
+];
+
+function WorkRow({ item, today }: { item: Item; today: string }) {
+  const company = item.company || 'Suggested company';
+  const companyHref = item.leadId ? `/leads/${item.targetNumber}` : item.href;
+  return (
+    <li className="work">
+      <div style={{ minWidth: 0 }}>
+        <div className="who-line">
+          <Link className="company" href={companyHref}>
+            {company}
+          </Link>
+          <span className="where">{item.line.what}</span>
+        </div>
+        <p className="sentence">{item.line.sentence}</p>
+      </div>
+      <div className="aside">
+        {item.overdue && item.due ? <Chip tone="act">Overdue · {dayLabel(item.due)}</Chip> : item.due && item.due >= today ? <Chip>Due {dayLabel(item.due)}</Chip> : null}
+        <Link className="btn btn-sm" href={item.href}>
+          {item.line.action}
+        </Link>
+      </div>
+    </li>
+  );
+}
+
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ who?: string }> }) {
+  const actor = await requirePermission('lead.view');
   const { who } = await searchParams;
   const mine = who !== 'all';
-  const [d, work] = await Promise.all([getDashboard(), getToday(actor, { mine })]);
+  const snap = await requestSnapshot();
+  const work = await getToday(actor, { mine, snapshot: snap });
+  const seesEmail = actor.permissions.has('email.view_ledger');
+  const sender = seesEmail ? senderStatus(snap, actor, work.today) : null;
 
-  // Compute total actionable count from real attention items and today's work list
-  const totalActionsCount = d.attention.reduce((acc, a) => acc + a.count, 0) + work.items.length;
+  const first = actor.name.split(' ')[0];
+  const hour = Number(new Date().toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }));
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const counts = work.byUrgency;
+  const summary = [
+    counts.now ? `${counts.now} ${counts.now === 1 ? 'thing needs' : 'things need'} you now` : null,
+    counts.today ? `${counts.today} due today` : null,
+    counts.later ? `${counts.later} when you have time` : null,
+  ].filter(Boolean);
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1>Today</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            Good day, {actor.name} · {d.today} (IST)
-          </p>
-        </div>
-        <span className="badge info">
-          {totalActionsCount} action{totalActionsCount === 1 ? '' : 's'} recorded
-        </span>
-      </div>
+      <PageHead
+        label={dayLabel(work.today)}
+        title="Today"
+        sub={`${greeting}, ${first}. ${summary.length ? `${summary.join(' · ')}.` : 'Nothing needs you right now.'}`}
+        aside={
+          work.me ? (
+            <span className="small muted">
+              {mine ? (
+                <>
+                  Showing your work · <Link href="/?who=all">everyone’s</Link>
+                </>
+              ) : (
+                <>
+                  Showing everyone’s work · <Link href="/">only yours</Link>
+                </>
+              )}
+            </span>
+          ) : null
+        }
+      />
 
-      <p className="lede" style={{ marginBottom: 16 }}>{d.phase.detail}</p>
-
-      {d.warnings.length ? (
-        <div className="notice" style={{ marginBottom: 20 }}>
-          {d.warnings.map(w => (
-            <p key={w} className="small">
-              {w}
+      {sender && (sender.state === 'ON_HOLD' || sender.state === 'STUCK') ? (
+        <div style={{ marginBottom: 'var(--s5)' }}>
+          <Banner tone={sender.state === 'ON_HOLD' ? 'stop' : 'act'} chip={sender.state === 'ON_HOLD' ? 'Email on hold' : 'Email stuck'}>
+            <p>
+              <strong>{sender.headline}</strong>
             </p>
-          ))}
+            {sender.explanation.slice(0, 2).map(e => (
+              <p key={e} className="small muted">
+                {e}
+              </p>
+            ))}
+            <p className="small" style={{ marginTop: 'var(--s2)' }}>
+              <Link href="/email">See the scheduled emails</Link> · <AsOf iso={sender.asOf} />
+            </p>
+          </Banner>
         </div>
       ) : null}
 
-      {/* ── SECTION 1: WHAT NEEDS ATTENTION (Attention Queue) ─────────────── */}
-      <h2 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span>Needs Attention</span>
-        <span className="small muted font-normal">{d.attention.length} active queue{d.attention.length === 1 ? '' : 's'}</span>
-      </h2>
-
-      {d.attention.length ? (
-        <div className="attention" style={{ marginBottom: 24 }}>
-          {d.attention.map(a => (
-            <Link key={a.id} href={a.href} className={a.severity}>
-              <span>
-                <strong>{a.label}</strong>
-                <span className="d">{a.detail}</span>
-              </span>
-              <span className="n">{a.count}</span>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          title="You're all clear."
-          description="No blocking issues or queue warnings require immediate intervention."
-          style={{ marginBottom: 24 }}
-        />
-      )}
-
-      {/* ── SECTION 2: TODAY'S WORK LIST (derived by core, ADR-028) ───────── */}
-      <h2 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span>Work Due Today ({work.items.length})</span>
-        <span className="small muted font-normal">
-          {work.me ? (
-            mine ? (
-              <>Showing work owned by {work.me} · <Link href="/?who=all">show everyone&rsquo;s</Link></>
-            ) : (
-              <>Showing everyone&rsquo;s work · <Link href="/">show only {work.me}&rsquo;s</Link></>
-            )
-          ) : (
-            'Showing everyone’s work'
-          )}
-        </span>
-      </h2>
-
       {work.items.length === 0 ? (
-        <EmptyState
-          title="Nothing is owed today."
-          description="No reply, follow-up, call, WhatsApp, review or research item is due."
-          style={{ marginBottom: 24 }}
-        />
+        <EmptyNote title="Nothing needs you today." action={{ href: '/leads', label: 'Browse companies' }}>
+          {sender && sender.state === 'SENDING' ? `${sender.queued.length} scheduled email${sender.queued.length === 1 ? '' : 's'} will go out automatically. ` : ''}
+          New work appears here as replies come in, follow-ups fall due and research is needed.
+        </EmptyNote>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          {work.items.slice(0, 60).map(i => {
-            const p = KIND_PRESENTATION[i.kind];
-            return (
-              <ActionCard
-                key={`${i.kind}-${i.ref ?? i.targetNumber}`}
-                title={i.company || '(unnamed)'}
-                targetNumber={i.targetNumber !== '—' ? i.targetNumber : undefined}
-                subtitle={p.label}
-                what={i.why.join(' · ')}
-                why={i.where === 'TITAN' ? 'Email is sent and recorded in Titan, not here.' : undefined}
-                owner={i.owner}
-                due={i.due}
-                statusBadge={i.overdue ? 'OVERDUE' : i.priority}
-                actionHref={i.href}
-                actionLabel={p.action}
-                secondaryHref={i.leadId ? `/leads/${i.targetNumber}` : undefined}
-                secondaryLabel={i.leadId ? 'View lead' : undefined}
-                severity={i.overdue ? 'critical' : p.severity}
-              />
-            );
-          })}
-          {work.items.length > 60 ? <p className="small muted">…and {work.items.length - 60} more lower in the order.</p> : null}
-        </div>
+        GROUPS.map(g => {
+          const items = work.items.filter(i => i.line.urgency === g.urgency);
+          if (!items.length) return null;
+          const shown = items.slice(0, g.show);
+          const rest = items.slice(g.show);
+          return (
+            <section key={g.urgency} aria-labelledby={`g-${g.urgency}`}>
+              <div className="group-head">
+                <h2 id={`g-${g.urgency}`}>{g.title}</h2>
+                <span className="label">{items.length}</span>
+              </div>
+              <ul className="rows">
+                {shown.map(i => (
+                  <WorkRow key={`${i.kind}-${i.ref ?? i.targetNumber}`} item={i} today={work.today} />
+                ))}
+              </ul>
+              {rest.length ? (
+                <details className="disclose" style={{ marginTop: 'var(--s2)' }}>
+                  <summary>
+                    <span className="title">Show {rest.length} more</span>
+                  </summary>
+                  <ul className="rows" style={{ margin: '0 var(--s4) var(--s4)' }}>
+                    {rest.map(i => (
+                      <WorkRow key={`${i.kind}-${i.ref ?? i.targetNumber}`} item={i} today={work.today} />
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </section>
+          );
+        })
       )}
 
-      {/* ── SECTION 3: WORKFLOW CHANNELS & ACTIVITY SUMMARY ───────────────── */}
-      <h2>Workflow Channels</h2>
-      <div className="grid3" style={{ marginBottom: 24 }}>
-        <div className="subtle-card">
-          <div className="row between" style={{ marginBottom: 6 }}>
-            <h3 className="small" style={{ margin: 0 }}>Follow-ups & Email</h3>
-            <span className="badge info">Titan</span>
-          </div>
-          <p style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>
-            {d.email.followUpsDue} <span className="small font-normal muted">due</span>
-          </p>
-          <p className="small muted" style={{ margin: '4px 0 10px' }}>
-            {d.email.sent} sent · {d.email.scheduled} queued
-          </p>
-          <Link href="/email" className="badge ghost" style={{ textDecoration: 'none' }}>
-            Open email ledger →
-          </Link>
-        </div>
-
-        <div className="subtle-card">
-          <div className="row between" style={{ marginBottom: 6 }}>
-            <h3 className="small" style={{ margin: 0 }}>Phone Calls</h3>
-            <span className={`badge ${d.callQueue.callable > 0 ? 'ok' : ''}`}>
-              {d.callQueue.callable} callable
-            </span>
-          </div>
-          <p style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>
-            {d.callQueue.callable} <span className="small font-normal muted">ready</span>
-          </p>
-          <p className="small muted" style={{ margin: '4px 0 10px' }}>
-            {d.callQueue.excluded} excluded (unsourced)
-          </p>
-          <Link href="/calls" className="badge ghost" style={{ textDecoration: 'none' }}>
-            Open call queue →
-          </Link>
-        </div>
-
-        <div className="subtle-card">
-          <div className="row between" style={{ marginBottom: 6 }}>
-            <h3 className="small" style={{ margin: 0 }}>Research Pipeline</h3>
-            <span className="badge">{d.researchQueue.open} open</span>
-          </div>
-          <p style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>
-            {d.researchQueue.open} <span className="small font-normal muted">leads need info</span>
-          </p>
-          <p className="small muted" style={{ margin: '4px 0 10px' }}>
-            {d.researchQueue.topFields[0] ? `Top gap: ${d.researchQueue.topFields[0].field}` : 'Queues healthy'}
-          </p>
-          <Link href="/research" className="badge ghost" style={{ textDecoration: 'none' }}>
-            Open research →
-          </Link>
-        </div>
-      </div>
-
-      {/* ── SECTION 4: PIPELINE PULSE ─────────────────────────────────────── */}
-      <h2>Pipeline at a Glance</h2>
-      <dl className="stats" style={{ marginBottom: 20 }}>
-        <div>
-          <dt>Contacted</dt>
-          <dd>{d.email.sent}</dd>
-        </div>
-        <div>
-          <dt>Replies Waiting</dt>
-          <dd>{d.email.repliesWaiting}</dd>
-        </div>
-        <div>
-          <dt>Meetings</dt>
-          <dd>{d.pipeline.meetings}</dd>
-        </div>
-        <div>
-          <dt>Proposals</dt>
-          <dd>{d.pipeline.proposals}</dd>
-        </div>
-        <div>
-          <dt>Won</dt>
-          <dd>{d.pipeline.won}</dd>
-        </div>
-      </dl>
-      <p className="small muted">
-        Numbers reflect recorded states in the canonical database and Titan ledger. No conversion probabilities are estimated.
-      </p>
+      {sender && sender.state === 'SENDING' ? (
+        <p className="small muted" style={{ marginTop: 'var(--s6)' }}>
+          {sender.headline} <Link href="/email">See them</Link>.
+        </p>
+      ) : null}
     </>
   );
 }

@@ -13,6 +13,7 @@ import type { Actor } from '../authz/authorize';
 import { contactsFor, scrubContactValues, type LeadContacts } from './contacts';
 import { loadCanonical, ledgerStatusOf, type CanonicalSnapshot } from '../repo/canonical';
 import { presentedNextAction, presentedStage } from './ledger-view';
+import { GATE_LABELS as OPERATOR_GATE_LABELS, operatorStatus, statusMatches, nextActionLabel, type OperatorStatus } from './operator';
 
 /**
  * The lead read surface.
@@ -21,7 +22,7 @@ import { presentedNextAction, presentedStage } from './ledger-view';
  * AADI_DAILY_CALLS.md can never disagree. Nothing is recomputed differently for the web.
  */
 
-export const LEAD_SORTS = ['priority', 'score', 'research', 'company', 'target', 'next_action'] as const;
+export const LEAD_SORTS = ['attention', 'priority', 'score', 'research', 'company', 'target', 'next_action'] as const;
 export type LeadSort = (typeof LEAD_SORTS)[number];
 
 export interface LeadFilters {
@@ -35,6 +36,8 @@ export interface LeadFilters {
   contactability?: string;
   suppressed?: 'yes' | 'no';
   pipeline?: string;
+  /** An operator status filter (operator.ts STATUS_FILTERS). */
+  status?: string;
   sort?: LeadSort;
   page?: number;
   pageSize?: number;
@@ -61,19 +64,29 @@ export interface LeadRow {
   /** Whether this lead can actually be contacted today, and how. */
   contactability: { callable: boolean; emailable: boolean; whatsapp: boolean; summary: string };
   suppressed: boolean;
+  /** Why it is blocked, when it is (core's outreachBlock reason). */
+  blockReason: string | null;
   pipelineStage: string;
   emailLedgerStatus: string | null;
   nextAction: string | null;
   nextActionDate: string | null;
   owner: string | null;
+  /** Where the company stands, in one operator label and sentence (ADR-035). */
+  status: OperatorStatus;
+  /** Whether it is in the automatic email queue right now. */
+  queued: boolean;
 }
 
 const pipelineStageOf = (l: KachmoLead): string =>
   l.deal_stage ?? (l.proposal_status === 'SENT' ? 'PROPOSAL_SENT' : null) ?? (l.meeting_status ? `MEETING_${l.meeting_status}` : null) ?? l.response_status ?? l.lead_state ?? 'NONE';
 
-function toRow(lead: KachmoLead, snapshot: CanonicalSnapshot): LeadRow {
+const istDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+function toRow(lead: KachmoLead, snapshot: CanonicalSnapshot, today: string = istDay()): LeadRow {
   const ledger = ledgerStatusOf(snapshot)(lead.target_number);
-  const blocked = outreachBlock(lead, snapshot.suppression, ledger).blocked;
+  const block = outreachBlock(lead, snapshot.suppression, ledger);
+  const blocked = block.blocked;
+  const queued = snapshot.scheduled.some(s => s.targetNumber === lead.target_number);
   const callable = phoneEligibility(lead).ok && !blocked;
   const emailable = emailRoute(lead).quality === 'DIRECT' && !blocked;
   const whatsapp = whatsappEligibility(lead).ok && !blocked;
@@ -94,19 +107,27 @@ function toRow(lead: KachmoLead, snapshot: CanonicalSnapshot): LeadRow {
     researchCompleteness: lead.research_completeness_score,
     contactability: { callable, emailable, whatsapp, summary: blocked ? 'suppressed' : routes.length ? routes.join(' · ') : 'no usable route' },
     suppressed: blocked,
+    blockReason: block.reason,
     pipelineStage: presentedStage(pipelineStageOf(lead), ledger),
     emailLedgerStatus: ledger,
-    nextAction: presentedNextAction(lead.next_action, ledger),
+    nextAction: nextActionLabel(presentedNextAction(lead.next_action, ledger)),
     nextActionDate: lead.next_action_date,
     owner: lead.owner,
+    status: operatorStatus({ lead, ledger: snapshot.tracker.get(lead.target_number) ?? null, blocked: block, queued, today }),
+    queued,
   };
 }
 
 const PRIORITY_ORDER: Record<string, number> = { 'A+': 0, A: 1, B: 2, C: 3, UNSCORED: 4, DISQUALIFIED: 5 };
+/** "Needs you" first, then everything in motion, then closed, then do-not-contact last. */
+const TONE_ORDER: Record<string, number> = { act: 0, neutral: 1, done: 2, stop: 3 };
 
 function sortRows(rows: LeadRow[], sort: LeadSort): LeadRow[] {
   const by = [...rows];
+  const byPriority = (a: LeadRow, b: LeadRow) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9) || (b.score ?? -1) - (a.score ?? -1) || a.targetNumber.localeCompare(b.targetNumber);
   switch (sort) {
+    case 'attention':
+      return by.sort((a, b) => (TONE_ORDER[a.status.tone] ?? 9) - (TONE_ORDER[b.status.tone] ?? 9) || byPriority(a, b));
     case 'score':
       return by.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || a.targetNumber.localeCompare(b.targetNumber));
     case 'research':
@@ -158,7 +179,8 @@ const tally = (values: Array<string | null>) => {
  */
 export async function listLeads(filters: LeadFilters, snapshot?: CanonicalSnapshot): Promise<LeadListResult> {
   const snap = snapshot ?? (await loadCanonical());
-  const all = snap.leads.map(l => toRow(l, snap));
+  const today = istDay();
+  const all = snap.leads.map(l => toRow(l, snap, today));
 
   const q = filters.q?.trim().toLowerCase();
   const matchedRows = all.filter(r => {
@@ -174,6 +196,7 @@ export async function listLeads(filters: LeadFilters, snapshot?: CanonicalSnapsh
     if (filters.contactability === 'callable' && !r.contactability.callable) return false;
     if (filters.contactability === 'emailable' && !r.contactability.emailable) return false;
     if (filters.contactability === 'none' && (r.contactability.callable || r.contactability.emailable)) return false;
+    if (filters.status && !statusMatches(filters.status, r.status)) return false;
     return true;
   });
 
@@ -222,16 +245,8 @@ export interface GateExplanation {
   meaning: string;
 }
 
-const GATE_LABELS: Record<string, string> = {
-  gate_1_decision_maker: 'Decision maker',
-  gate_2_contactability: 'Contactability',
-  gate_3_commercial_proof: 'Commercial proof',
-  gate_4_digital_friction: 'Digital friction',
-  gate_5_location_timezone: 'Location / timezone',
-  gate_6_budget_probability: 'Budget probability',
-  gate_7_buying_intent: 'Buying intent',
-  gate_8_kachmo_fit: 'Kachmo fit',
-};
+// One gate-label table for the whole app, keyed by core's gate keys (ADR-035).
+const GATE_LABELS = OPERATOR_GATE_LABELS as Record<string, string>;
 const NON_BLOCKING_GATES = new Set(['gate_6_budget_probability', 'gate_7_buying_intent']);
 const OUTCOME_MEANING: Record<string, string> = {
   PASS: 'satisfied, with a recorded source',

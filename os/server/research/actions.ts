@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requirePermission } from '../auth/current-actor';
+import { guarded, isUuid } from '../auth/action-guard';
 import { createBrief, uploadReport, reviewCandidate, ResearchError } from './service';
 import { RESEARCH_PROVIDERS, REPORT_FORMATS, MAX_REPORT_BYTES, type ReportFormat } from '@kachmo/core/research/report.js';
 import { REVIEW_DECISIONS, type ReviewDecision } from '@kachmo/core/research/candidate.js';
@@ -27,6 +28,10 @@ export interface ActionState {
 }
 
 export async function createBriefAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  return guarded(() => createBrief_(form));
+}
+
+async function createBrief_(form: FormData): Promise<ActionState> {
   const actor = await requirePermission('research.create');
 
   const archetypeId = str(form, 'archetypeId', 8);
@@ -64,6 +69,10 @@ export async function createBriefAction(_prev: ActionState, form: FormData): Pro
 }
 
 export async function uploadReportAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  return guarded(() => uploadReport_(form));
+}
+
+async function uploadReport_(form: FormData): Promise<ActionState> {
   const actor = await requirePermission('research.upload');
 
   const format = str(form, 'format', 16) as ReportFormat;
@@ -103,20 +112,30 @@ export async function uploadReportAction(_prev: ActionState, form: FormData): Pr
 }
 
 export async function reviewCandidateAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  return guarded(() => reviewCandidate_(form));
+}
+
+async function reviewCandidate_(form: FormData): Promise<ActionState> {
   // Approving a candidate is a different permission from uploading one: a researcher may not approve their own work.
   const actor = await requirePermission('research.approve');
 
   const decision = str(form, 'decision', 32) as ReviewDecision;
-  if (!(REVIEW_DECISIONS as readonly string[]).includes(decision)) return { error: 'Unknown review decision.' };
+  // No decision is ever assumed: the form starts empty, and an empty or unknown choice is refused (audit C1).
+  if (!(REVIEW_DECISIONS as readonly string[]).includes(decision)) return { error: 'Choose a decision first. Nothing was saved.' };
   const candidateId = str(form, 'candidateId', 64);
-  if (!candidateId) return { error: 'Missing candidate.' };
+  // Checked before any query: a malformed id is a refusal, never a database error (audit C6).
+  if (!isUuid(candidateId)) return { error: 'That suggested company could not be found. Reload the page.' };
+  const mergeInto = str(form, 'mergeIntoLeadId', 64);
+  if (decision === 'MERGE' && !isUuid(mergeInto)) return { error: 'Choose which existing company this is the same as.' };
+  // Adding a company to the list is confirmed explicitly, so a stray submit can never create one.
+  if (decision === 'ACCEPT' && str(form, 'confirm', 8) !== 'yes') return { error: 'Confirm that you want to add this company to the list. Nothing was saved.' };
 
   try {
     const result = await reviewCandidate(actor, {
       candidateId,
       decision,
       note: str(form, 'note', 2000) || null,
-      mergeIntoLeadId: str(form, 'mergeIntoLeadId', 64) || null,
+      mergeIntoLeadId: decision === 'MERGE' ? mergeInto : null,
     });
     revalidatePath('/research');
     revalidatePath(`/research/candidates/${candidateId}`);

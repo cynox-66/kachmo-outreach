@@ -1,8 +1,12 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
 import { getPipeline } from '@/server/services/operations';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { actorName, eventLabel, momentLabel } from '@/server/services/operator';
+import { PageHead } from '../components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Pipeline' };
 
 /**
  * PIPELINE — Commercial deal and conversation stages.
@@ -12,26 +16,15 @@ export const dynamic = 'force-dynamic';
  */
 export default async function PipelinePage() {
   await requirePermission('pipeline.update');
-  const p = await getPipeline();
+  const p = await getPipeline(await requestSnapshot());
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1>Pipeline</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            Active commercial conversations and deal progression
-          </p>
-        </div>
-        <span className="badge info">
-          {p.totals.inPipeline} in pipeline
-        </span>
-      </div>
-
-      <p className="lede" style={{ marginBottom: 20 }}>
-        Every lead is presented in the state recorded in the canonical database or Titan ledger.
-        No conversion probability or win likelihood is estimated.
-      </p>
+      <PageHead
+        label={`${p.totals.inPipeline} in conversation`}
+        title="Pipeline"
+        sub="Every company, by where the conversation stands — from the email records and what has been recorded here. No chance of winning is estimated."
+      />
 
       {/* ── STAGE METRICS ────────────────────────────────────────────────── */}
       <dl className="stats" style={{ marginBottom: 24 }}>
@@ -49,7 +42,7 @@ export default async function PipelinePage() {
         </div>
         <div>
           <dt>Won</dt>
-          <dd style={{ color: '#1f5132' }}>{p.totals.won}</dd>
+          <dd>{p.totals.won}</dd>
         </div>
         <div>
           <dt>Lost</dt>
@@ -58,9 +51,9 @@ export default async function PipelinePage() {
       </dl>
 
       {/* ── KANBAN BOARD WORKSPACE ───────────────────────────────────────── */}
-      <h2>Pipeline Stages</h2>
+      <h2>By stage</h2>
       <div className="board" style={{ marginBottom: 28 }}>
-        {p.columns.map(c => (
+        {p.columns.filter(c => c.leads.length > 0).map(c => (
           <div className="col" key={c.key}>
             <h3>
               <span>{c.label}</span>
@@ -97,23 +90,23 @@ export default async function PipelinePage() {
       </div>
 
       {/* ── RECENT TRANSITIONS ───────────────────────────────────────────── */}
-      <h2>Recent Activity</h2>
+      <h2>Recent activity</h2>
       <div className="tablewrap">
         <table>
           <thead>
             <tr>
               <th>When</th>
-              <th>Target</th>
+              <th>#</th>
               <th>Company</th>
-              <th>Stage Event</th>
-              <th>Channel</th>
-              <th>Recorded By</th>
+              <th>What happened</th>
+              <th>How</th>
+              <th>By</th>
             </tr>
           </thead>
           <tbody>
             {p.transitions.map((t, i) => (
               <tr key={`${t.at}-${i}`}>
-                <td className="small">{t.at.slice(0, 16).replace('T', ' ')}</td>
+                <td className="small nowrap">{momentLabel(t.at)}</td>
                 <td className="small" style={{ fontFamily: 'var(--mono)' }}>
                   <Link href={`/leads/${t.targetNumber}`} style={{ textDecoration: 'none' }}>
                     {t.targetNumber}
@@ -122,17 +115,15 @@ export default async function PipelinePage() {
                 <td>
                   <strong>{t.company}</strong>
                 </td>
-                <td>
-                  <span className="badge">{t.event}</span>
-                </td>
-                <td className="small muted">{t.channel}</td>
-                <td className="small">{t.actor}</td>
+                <td className="small">{eventLabel(t.event)}</td>
+                <td className="small muted">{t.channel.toLowerCase()}</td>
+                <td className="small">{actorName(t.actor)}</td>
               </tr>
             ))}
             {p.transitions.length === 0 ? (
               <tr>
                 <td colSpan={6} className="empty">
-                  No pipeline transitions have been recorded yet.
+                  Nothing has been recorded yet.
                 </td>
               </tr>
             ) : null}

@@ -1,111 +1,85 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
 import { getResearchQueue } from '@/server/services/research-queue';
-import { presentField } from '@/server/services/presentation';
-import { EmptyState } from '../../components/EmptyState';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { researchTaskLabel } from '@/server/services/operator';
+import { EmptyNote, PageHead } from '../../components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Research queue' };
 
 /**
- * RESEARCH QUEUE — every lead with open research, in core's order.
- *
- * The order, the tasks and what counts as evidence are core's (`buildResearchQueue`). This page only says where to
- * record each finding: the link opens the lead's research form on the right field. Nothing here changes a lead.
+ * RESEARCH QUEUE — every company with something to find, in the engine's order (priority, then how much is missing).
+ * The order and what counts as evidence are core's; this page says where to record each finding. Nothing here
+ * changes a company.
  */
 export default async function ResearchQueuePage({ searchParams }: { searchParams: Promise<{ who?: string }> }) {
   const actor = await requirePermission('lead.view');
   const { who } = await searchParams;
   const mine = who !== 'all';
-  const q = await getResearchQueue(actor, { mine });
+  const q = await getResearchQueue(actor, { mine, snapshot: await requestSnapshot() });
   const canRecord = actor.permissions.has('lead.edit') && q.source === 'POSTGRES';
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1>Research Queue</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            {q.items.length} lead{q.items.length === 1 ? '' : 's'} with open research · ordered by priority, then by how much is missing
-          </p>
-        </div>
-        <span className="small muted">
-          {q.me ? (
-            mine ? (
-              <>Owned by {q.me} · <Link href="/research/queue?who=all">show everyone&rsquo;s</Link></>
-            ) : (
-              <>Everyone&rsquo;s · <Link href="/research/queue">show only {q.me}&rsquo;s</Link></>
-            )
-          ) : (
-            'Everyone’s'
-          )}
-        </span>
-      </div>
-
-      <p className="lede" style={{ marginBottom: 16 }}>
-        The engine lists what each lead is missing and what would count as evidence. Nothing is researched automatically:
-        a person finds the fact, records it with its source, and the engine re-qualifies the lead in the same write.
-      </p>
+      <Link className="crumb" href="/research">
+        ← Research
+      </Link>
+      <PageHead
+        label={`${q.items.length} compan${q.items.length === 1 ? 'y' : 'ies'}`}
+        title="What to find"
+        sub="A person finds each fact and records it with its source; the company is re-checked in the same step. Nothing is researched automatically."
+        aside={
+          q.me ? (
+            <span className="small muted">
+              {mine ? (
+                <>
+                  Yours · <Link href="/research/queue?who=all">everyone’s</Link>
+                </>
+              ) : (
+                <>
+                  Everyone’s · <Link href="/research/queue">only yours</Link>
+                </>
+              )}
+            </span>
+          ) : null
+        }
+      />
 
       {q.topFields.length ? (
-        <div className="panel small" style={{ marginBottom: 16 }}>
-          <strong>Blocking the most leads:</strong>{' '}
-          {q.topFields.map((f, i) => (
-            <span key={f.field}>
-              {i ? ' · ' : ''}
-              {presentField(f.field)} ({f.leads})
-            </span>
-          ))}
-        </div>
+        <p className="small muted">
+          Most often missing: {q.topFields.slice(0, 4).map((f, i) => `${i ? ', ' : ''}${researchTaskLabel(f.field)} (${f.leads})`)}
+        </p>
       ) : null}
 
       {q.items.length === 0 ? (
-        <EmptyState title="No open research." description="Every lead has the intelligence the methodology requires." />
+        <EmptyNote title="Nothing to find." >Every company has what the next step needs.</EmptyNote>
       ) : (
-        <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Target</th>
-                <th>Company</th>
-                <th>Priority</th>
-                <th style={{ textAlign: 'right' }}>Research</th>
-                <th>Owner</th>
-                <th>Open tasks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {q.items.map(i => (
-                <tr key={i.targetNumber}>
-                  <td className="small" style={{ fontFamily: 'var(--mono)' }}>
-                    <Link href={`/leads/${i.targetNumber}`}>{i.targetNumber}</Link>
-                  </td>
-                  <td>
-                    <strong>{i.company}</strong>
-                  </td>
-                  <td className="small">
-                    <span className="badge">{i.priority}</span>
-                    {i.confidence === 'PROVISIONAL' ? <span className="badge warn" style={{ marginLeft: 4 }}>provisional</span> : null}
-                  </td>
-                  <td className="small" style={{ textAlign: 'right' }}>{i.completeness}%</td>
-                  <td className="small">{i.owner}</td>
-                  <td className="wrap small">
-                    {i.tasks.slice(0, 3).map(t => (
-                      <div key={t.field}>
-                        {canRecord && t.recordField ? (
-                          <Link href={`/leads/${i.targetNumber}?record=${t.recordField}#record`}>{presentField(t.field)}</Link>
-                        ) : (
-                          <span>{presentField(t.field)}</span>
-                        )}
-                        <span className="muted"> — {t.task}</span>
-                      </div>
-                    ))}
-                    {i.tasks.length > 3 ? <div className="muted">…{i.tasks.length - 3} more on the lead page</div> : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="rows">
+          {q.items.map(i => (
+            <li key={i.targetNumber} className="work">
+              <div style={{ minWidth: 0 }}>
+                <div className="who-line">
+                  <Link className="company" href={`/leads/${i.targetNumber}`}>
+                    {i.company}
+                  </Link>
+                  <span className="where mono">
+                    {i.priority === 'UNSCORED' ? '' : `Priority ${i.priority}${i.confidence === 'PROVISIONAL' ? ' · provisional' : ''} · `}
+                    {i.completeness}% researched
+                  </span>
+                </div>
+                <ul className="small" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                  {i.tasks.slice(0, 3).map(t => (
+                    <li key={t.field}>
+                      {canRecord && t.recordField ? <Link href={`/leads/${i.targetNumber}?record=${t.recordField}#record`}>Find {researchTaskLabel(t.field)}</Link> : <>Find {researchTaskLabel(t.field)}</>}
+                    </li>
+                  ))}
+                  {i.tasks.length > 3 ? <li className="muted">and {i.tasks.length - 3} more on the company page</li> : null}
+                </ul>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </>
   );

@@ -379,7 +379,8 @@ group('11. Email state follows Titan’s ledger, never a stale stored phrase');
 
   // The 18 webmail sends of 2026-09-12, reconciled DRAFTED → SENT in the ledger with lead records left untouched.
   const RECONCILED = ['016', '017', '018', '020', '021', '022', '030', '033', '035', '049', '052', '061', '073', '074', '078', '079', '080', '083'];
-  const stale = /Dev to review and send/;
+  // The engine's phrase, and its operator translation (ADR-035): either one would ask for a duplicate send.
+  const stale = /Dev to review and send|Dev reviews it and sends it/;
   assert(RECONCILED.every(t => snapshot.tracker.get(t)?.status === 'SENT'), 'the ledger records all 18 reconciled targets as SENT');
   const all = await listLeads({ pageSize: MAX_PAGE_SIZE }, snapshot);
   const rows = all.rows.filter(r => RECONCILED.includes(r.targetNumber));

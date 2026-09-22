@@ -47,7 +47,10 @@ export interface CallQueueView {
     researchCompleteness: number;
     archetype: string;
     whyThem: string;
+    /** A source link is recorded for the claim (core's call card flag). Never "checked": nobody has opened it. */
+    whyThemSourced: boolean;
     friction: string;
+    frictionSourced: boolean;
     angle: string;
     whyNow: string | null;
     objective: string;
@@ -95,7 +98,9 @@ export async function getCallQueue(actor: Actor, snapshot?: CanonicalSnapshot): 
         researchCompleteness: c.research_completeness_score,
         archetype: c.archetype,
         whyThem: c.commercial_signal,
+        whyThemSourced: c.commercial_signal_verified,
         friction: c.observable_friction,
+        frictionSourced: c.friction_verified,
         angle: c.kachmo_angle,
         whyNow: c.why_now,
         objective: c.call_objective,

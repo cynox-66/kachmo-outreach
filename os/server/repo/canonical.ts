@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { asc, isNull } from 'drizzle-orm';
 import type { KachmoLead, SuppressionEntry, AnalyticsEvent } from '@kachmo/core/leads/schema.js';
 import type { TrackerRow, ScheduledEmail } from '@kachmo/core/email-ledger/tracker.js';
-import { REPO_ROOT, readTitanState as readTitanStateAt } from './titan-ledger';
+import { REPO_ROOT, readTitanState as readTitanStateAt, type QueuedEmailPreview } from './titan-ledger';
 import { validateLeadDatabase } from '@kachmo/core/leads/validation.js';
 import * as schema from '../db/schema/index';
 import { getServer } from '../auth/instance';
@@ -47,6 +47,10 @@ export interface CanonicalSnapshot {
   /** Titan's email ledger, read-only, in every phase. */
   tracker: Map<string, TrackerRow>;
   scheduled: ScheduledEmail[];
+  /** What each queued email says (subject and plain text), for display only. */
+  previews?: QueuedEmailPreview[];
+  /** The exact ledger and queue bytes, so the pure dispatch preflight judges the same input CI does. */
+  titanRaw?: { tracker: string | null; queue: string | null };
   /** Non-fatal problems worth showing the operator (a missing optional file, an unreadable ledger). */
   warnings: string[];
   /**
@@ -127,6 +131,8 @@ export async function loadCanonical(env: Record<string, string | undefined> = pr
     ...core,
     tracker: titan.tracker,
     scheduled: titan.scheduled,
+    previews: titan.previews,
+    titanRaw: titan.raw,
     warnings: titan.warnings,
   };
 }

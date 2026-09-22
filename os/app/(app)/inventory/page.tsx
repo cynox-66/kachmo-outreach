@@ -1,10 +1,17 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
 import { getInventory } from '@/server/services/operations';
-import { presentGate, presentField } from '@/server/services/presentation';
-import { EmptyState } from '../components/EmptyState';
+import { presentGate } from '@/server/services/presentation';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { researchTaskLabel } from '@/server/services/operator';
+import { archetypeById } from '@kachmo/core/config/taxonomy.js';
+import { EmptyNote, PageHead } from '../components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Inventory' };
+
+const segmentName = (s: { archetypeId: string; vertical: string | null; country: string }) =>
+  `${archetypeById(s.archetypeId)?.name ?? s.archetypeId}${s.vertical ? ` · ${s.vertical}` : ''} · ${s.country}`;
 
 const STATUS_BADGE: Record<string, string> = { CRITICAL: 'bad', LOW: 'warn', HEALTHY: 'ok' };
 
@@ -18,24 +25,16 @@ const STATUS_BADGE: Record<string, string> = { CRITICAL: 'bad', LOW: 'warn', HEA
  */
 export default async function InventoryPage() {
   await requirePermission('lead.view');
-  const { report, needs } = await getInventory();
+  const { report, needs } = await getInventory(await requestSnapshot());
   const t = report.thresholds;
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <div>
-          <h1>Inventory</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            Usable lead volume across commercial archetypes and geographies
-          </p>
-        </div>
-      </div>
-
-      <p className="lede" style={{ marginBottom: 20 }}>
-        A segment is <strong>Low</strong> below {t.low} usable leads and <strong>Critical</strong> at or below {t.critical}.
-        Only segments with at least {t.minSegmentSize} total leads are evaluated.
-      </p>
+      <PageHead
+        label="System"
+        title="Inventory"
+        sub={`Where we are running low on companies we can actually contact. A group is low below ${t.low} usable companies and critical at ${t.critical} or fewer; groups with fewer than ${t.minSegmentSize} companies are not judged.`}
+      />
 
       {/* ── TOTALS OVERVIEW ──────────────────────────────────────────────── */}
       <dl className="stats" style={{ marginBottom: 24 }}>
@@ -62,14 +61,10 @@ export default async function InventoryPage() {
       </dl>
 
       {/* ── SECTION 1: WHERE ARE WE RUNNING LOW? ─────────────────────────── */}
-      <h2>Where Are We Running Low?</h2>
+      <h2>Running low</h2>
 
       {needs.length === 0 ? (
-        <EmptyState
-          title="All monitored segments are healthy."
-          description="Every segment meets or exceeds minimum usable lead thresholds."
-          style={{ marginBottom: 28 }}
-        />
+        <EmptyNote title="No group is running low." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 28 }}>
           {needs.map(n => {
@@ -80,9 +75,9 @@ export default async function InventoryPage() {
                 s.segment.country === n.segment.country
             );
             const usableCount = segmentRow?.usable ?? 0;
-            const segmentTitle = `${n.segment.archetypeId}${n.segment.vertical ? ` · ${n.segment.vertical}` : ''} · ${n.segment.country}`;
+            const segmentTitle = segmentName(n.segment);
             const translatedGate = presentGate(n.blockingGate);
-            const translatedFields = n.missingFields.map(f => presentField(f)).join(', ');
+            const translatedFields = n.missingFields.map(f => researchTaskLabel(f)).join(', ');
 
             return (
               <div
@@ -103,10 +98,9 @@ export default async function InventoryPage() {
                   <div className="action-card-actions">
                     <Link
                       href={`/leads?archetype=${encodeURIComponent(n.segment.archetypeId)}&country=${encodeURIComponent(n.segment.country)}`}
-                      className="badge ghost"
-                      style={{ textDecoration: 'none' }}
+                      className="btn btn-sm"
                     >
-                      View leads
+                      View companies
                     </Link>
                     <Link
                       href={`/leads?archetype=${encodeURIComponent(n.segment.archetypeId)}&country=${encodeURIComponent(n.segment.country)}&state=RESEARCH_REQUIRED`}
@@ -119,11 +113,11 @@ export default async function InventoryPage() {
 
                 <div className="action-card-body">
                   <p className="action-card-what">
-                    <span className="action-tag">BLOCKING REASON:</span> {translatedGate}
+                    <span className="label" style={{ display: 'inline', marginRight: 6 }}>Held back by</span> {translatedGate}
                   </p>
                   {translatedFields ? (
                     <p className="action-card-why muted small">
-                      <span className="action-tag-muted">MISSING INTELLIGENCE:</span> {translatedFields}
+                      <span className="label" style={{ display: 'inline', marginRight: 6 }}>Missing</span> {translatedFields}
                     </p>
                   ) : null}
                   {n.rationale ? (
@@ -139,7 +133,7 @@ export default async function InventoryPage() {
       )}
 
       {/* ── SECTION 2: ALL SEGMENTS ──────────────────────────────────────── */}
-      <h2>All Segments ({report.segments.length})</h2>
+      <h2>All groups ({report.segments.length})</h2>
       <div className="tablewrap">
         <table>
           <thead>
@@ -156,7 +150,7 @@ export default async function InventoryPage() {
           </thead>
           <tbody>
             {report.segments.map(s => {
-              const segLabel = `${s.segment.archetypeId}${s.segment.vertical ? ` · ${s.segment.vertical}` : ''} · ${s.segment.country}`;
+              const segLabel = segmentName(s.segment);
               const topGate = s.blockingGates[0]?.gate ? presentGate(s.blockingGates[0].gate) : 'None';
 
               return (
@@ -175,10 +169,9 @@ export default async function InventoryPage() {
                   <td style={{ textAlign: 'right' }}>
                     <Link
                       href={`/leads?archetype=${encodeURIComponent(s.segment.archetypeId)}&country=${encodeURIComponent(s.segment.country)}`}
-                      className="badge ghost"
-                      style={{ textDecoration: 'none' }}
+                      className="btn btn-sm"
                     >
-                      View →
+                      View
                     </Link>
                   </td>
                 </tr>

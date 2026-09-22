@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
+import { isUuid } from '@/server/auth/action-guard';
 import { getBrief, listBriefs } from '@/server/research/service';
 import { ARCHETYPES_V1 } from '@kachmo/core/config/taxonomy.js';
 import { BriefForm } from './form';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Research brief' };
 
 type Search = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
@@ -13,12 +15,13 @@ export default async function BriefsPage({ searchParams }: { searchParams: Promi
   await requirePermission('research.create');
   const search = await searchParams;
   const openId = one(search.open) ?? one(search.created);
-  const opened = openId ? await getBrief(openId) : null;
+  // An id that is not a UUID is simply not a brief — it never reaches the database as a query error (audit C6).
+  const opened = openId && isUuid(openId) ? await getBrief(openId) : null;
   const briefs = await listBriefs(25);
 
   return (
     <>
-      <p className="crumb"><Link href="/research">← Research</Link></p>
+      <Link className="crumb" href="/research">← Research</Link>
       <h1>Research brief</h1>
       <p className="lede">
         A brief tells an external researcher <strong>exactly what evidence is required</strong>, not merely what kind
@@ -57,7 +60,7 @@ export default async function BriefsPage({ searchParams }: { searchParams: Promi
                 <td className="small">{(b.geographies as string[]).join(', ')}</td>
                 <td className="num">{b.targetCount}</td>
                 <td className="small">{b.createdAt.toISOString().slice(0, 10)} · {b.createdByLabel}</td>
-                <td><Link className="badge" href={`/research/briefs?open=${b.id}`}>Open →</Link></td>
+                <td><Link className="btn btn-sm" href={`/research/briefs?open=${b.id}`}>Open</Link></td>
               </tr>
             ))}
             {briefs.length === 0 ? <tr><td colSpan={6} className="empty">No brief yet.</td></tr> : null}

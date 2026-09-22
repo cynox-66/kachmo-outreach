@@ -24,6 +24,9 @@ const nextConfig = {
   // silently reads as "unknown". The JSON lead store is deliberately NOT included: a deployment missing
   // KACHMO_CUTOVER_PHASE=POST_CUTOVER then fails loudly instead of rendering the frozen pre-cutover snapshot.
   outputFileTracingIncludes: { '/**': ['../OUTREACH_TRACKER.md', '../scheduled-queue.json'] },
+  // Those two files are therefore exactly as fresh as the build. The build time is stamped (server code only) so every
+  // email-state surface can say "as of" instead of implying it is live (audit A5, ADR-036).
+  env: { KACHMO_BUILT_AT: new Date().toISOString() },
   async headers() {
     return [
       {

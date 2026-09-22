@@ -12,6 +12,8 @@
  * - Neutral semantic translations (e.g. DISQUALIFIED -> "Disqualified").
  */
 
+import { GATE_LABELS as OPERATOR_GATE_LABELS } from './operator';
+
 export type StatusTone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral';
 
 /** Human-readable status translations for research and outreach states */
@@ -109,17 +111,12 @@ export const FIELD_LABELS: Record<string, string> = {
   timezone: 'Timezone',
 };
 
-/** Human-readable gate names for operator display */
-export const GATE_LABELS: Record<string, string> = {
-  gate_1_commercial_proof: 'Commercial validation',
-  gate_2_contactability: 'Direct contact route',
-  gate_3_digital_friction: 'Website friction',
-  gate_4_location_timezone: 'Location & timezone',
-  gate_5_budget_signal: 'Budget viability',
-  gate_6_buying_intent: 'Urgency & intent',
-  gate_7_decision_maker: 'Named decision-maker',
-  gate_8_kachmo_fit: 'Kachmo studio fit',
-};
+/**
+ * Gate names for operator display. ONE table, keyed by core's own gate keys (tests/operator.ts pins that). The table
+ * that used to live here was keyed by gate names core never emits (`gate_1_commercial_proof`, …), so six of eight
+ * gates rendered as raw identifiers — and "fixing" it by position would have mislabelled them.
+ */
+export { GATE_LABELS } from './operator';
 
 /** Maps a status key to a human-readable label */
 export function presentStatus(status: string | null | undefined): string {
@@ -142,7 +139,7 @@ export function presentField(field: string | null | undefined): string {
 /** Maps a technical gate identifier to a human-friendly label */
 export function presentGate(gate: string | null | undefined): string {
   if (!gate) return '—';
-  return GATE_LABELS[gate] ?? gate.replace(/_/g, ' ');
+  return (OPERATOR_GATE_LABELS as Record<string, string>)[gate] ?? gate.replace(/_/g, ' ');
 }
 
 /** Formats an ISO date into a clean display string */

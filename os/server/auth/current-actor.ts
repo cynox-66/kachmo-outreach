@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServer } from './instance';
@@ -10,12 +11,14 @@ import { recordAudit } from '../audit/audit';
  * Server-side identity for the current request. The session is validated by Better Auth against the database on
  * every call (cookie cache disabled), and roles are read from `user_role` — nothing the browser sends is trusted.
  */
-export async function getCurrentActor(): Promise<Actor | null> {
+export const getCurrentActor = cache(async (): Promise<Actor | null> => {
+  // Cached per request only (React `cache`): the layout and the page resolve the same session once, and every new
+  // request — every server action included — validates the session against the database afresh.
   const { auth, db } = getServer();
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
   return loadActor(db, session.user.id);
-}
+});
 
 /** For pages and layouts: unauthenticated visitors are sent to the login page. */
 export async function requireActor(): Promise<Actor> {

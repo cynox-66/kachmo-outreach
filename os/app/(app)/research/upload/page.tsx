@@ -5,6 +5,7 @@ import { MAX_REPORT_BYTES } from '@kachmo/core/research/report.js';
 import { UploadForm } from './form';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Upload research' };
 
 export default async function UploadPage() {
   await requirePermission('research.upload');
@@ -12,8 +13,8 @@ export default async function UploadPage() {
 
   return (
     <>
-      <p className="crumb"><Link href="/research">← Research</Link></p>
-      <h1>Upload a research report</h1>
+      <Link className="crumb" href="/research">← Research</Link>
+      <h1>Upload research</h1>
       <p className="lede">
         The report is treated as hostile input from the first byte: the filename is never used as a path, the size is
         capped at {Math.round(MAX_REPORT_BYTES / 1024 / 1024)}MB, only four formats are ever parsed, and nothing is

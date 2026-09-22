@@ -16,8 +16,11 @@ Browser ──► Next.js (App Router, server components / actions)
 Titan email (GitHub Actions cron, OUTREACH_TRACKER.md, scheduled-queue.json) stays OUTSIDE this app: read-only.
 ```
 
-> Status: Phase 1.2 (database foundation) complete. Authentication (1.3) and the application shell (1.4) sections below
-> are filled in as those phases land.
+> **Status (2026-09-22):** deployed on Vercel (project `os`) against production Neon, POST_CUTOVER, with application
+> writes still switched off. The operator interface was redesigned on 2026-09-22 — see
+> [`docs/OPERATOR_EXPERIENCE.md`](../docs/OPERATOR_EXPERIENCE.md), [`docs/DESIGN_LANGUAGE.md`](../docs/DESIGN_LANGUAGE.md) and
+> [`audit/PRODUCTION_AUDIT_2026-09-22.md`](../audit/PRODUCTION_AUDIT_2026-09-22.md). Some sections below describe the
+> build as it was at earlier phases; the ADRs and audits are the current record.
 
 ## Local development
 

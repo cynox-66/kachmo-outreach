@@ -69,7 +69,14 @@ jobs:
           KACHMO_OPERATOR_CONFIRM_HOST: ${{ secrets.KACHMO_DATABASE_HOST }}
           KACHMO_CUTOVER_PHASE: POST_CUTOVER
           KACHMO_NO_LOCAL_ENV: '1'
-        run: npm --prefix os run jobs:run -- --job=${{ inputs.job || 'stale-data' }} --limit=${{ inputs.limit || '25' }} --actor=SCHEDULED_JOB
+          # Inputs reach the shell as data, never as script text: `${{ inputs.* }}` inside `run:` is interpolated into
+          # the script before it runs (production audit 2026-09-22, A7). Each is validated before use.
+          JOB: ${{ inputs.job || 'stale-data' }}
+          LIMIT: ${{ inputs.limit || '25' }}
+        run: |
+          case "$JOB" in evidence-refresh|stale-data|weekly-report) ;; *) echo "Unknown job: $JOB" >&2; exit 1 ;; esac
+          case "$LIMIT" in ''|*[!0-9]*) echo "The limit must be a whole number." >&2; exit 1 ;; esac
+          npm --prefix os run jobs:run -- --job="$JOB" --limit="$LIMIT" --actor=SCHEDULED_JOB
 
       - name: Show the ledger
         if: always()

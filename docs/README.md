@@ -1,11 +1,38 @@
 # Lead Engine — Production Engineering Documentation
 
+> [!WARNING]
+> **Historical document — this is not the system in this repository.** It describes the original "Lead Engine" plan
+> (Google Sheets as the database, Gemini, Playwright, "never build a custom dashboard"), which was never built. The
+> system here is the **Outbound OS**: a Next.js application over Postgres around the `core/` engine, with Titan owning
+> email. Start with the current documents instead:
+> [`OPERATOR_EXPERIENCE.md`](OPERATOR_EXPERIENCE.md) (how it is used) ·
+> [`../os/README.md`](../os/README.md) (how it is built and run) ·
+> [`../audit/PRODUCTION_AUDIT_2026-09-22.md`](../audit/PRODUCTION_AUDIT_2026-09-22.md) (current state and risks) ·
+> [`adr/`](adr/) (ADR-009 onwards are current).
+
+
 > **Status:** Canonical & Locked  
 > **Architecture Lock:** LOCKED (`v1.0.0`)  
 > **Readiness Score:** 100 / 100 (Implementation Ready)  
 > **Owner:** Solo Operator / Principal Engineer  
 > **Last Updated:** 2026-08-09  
 > **Version:** 1.0.0  
+
+---
+
+## Current documents (the Outbound OS)
+
+| Read this | For |
+| :-- | :-- |
+| [`OPERATOR_EXPERIENCE.md`](OPERATOR_EXPERIENCE.md) | How the app is used: the seven operator questions, every screen, safety by design, the glossary |
+| [`DESIGN_LANGUAGE.md`](DESIGN_LANGUAGE.md) | The Kachmo visual language as applied to the app: tokens, contrast, type, components |
+| [`REDESIGN_PLAN.md`](REDESIGN_PLAN.md) | The 2026-09-22 redesign: sequence, boundaries, tests, verification, owner decisions |
+| [`../audit/PRODUCTION_AUDIT_2026-09-22.md`](../audit/PRODUCTION_AUDIT_2026-09-22.md) | The hostile production audit: findings, severities, what was fixed, what was not |
+| [`PHASE_C_D_E_MASTER_PLAN.md`](PHASE_C_D_E_MASTER_PLAN.md) · [`../audit/OUTBOUND_OS_PHASE_B_AUDIT.md`](../audit/OUTBOUND_OS_PHASE_B_AUDIT.md) | The write path, the operating loop, evidence, jobs; the production runbook |
+| [`adr/`](adr/) ADR-009 → ADR-036 | The decisions the current system rests on |
+| [`../os/README.md`](../os/README.md) | Building, testing and running the app |
+
+Everything below this section is the historical Lead Engine plan.
 
 ---
 

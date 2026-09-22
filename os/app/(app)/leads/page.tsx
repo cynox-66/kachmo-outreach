@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { requirePermission } from '@/server/auth/current-actor';
 import { listLeads, LEAD_SORTS, type LeadFilters, type LeadSort } from '@/server/services/leads';
-import { presentStatus, presentTone } from '@/server/services/presentation';
-import { StatusBadge } from '../components/StatusBadge';
-import { EmptyState } from '../components/EmptyState';
+import { requestSnapshot } from '@/server/services/snapshot';
+import { STATUS_FILTERS, dayLabel } from '@/server/services/operator';
+import { archetypeById } from '@kachmo/core/config/taxonomy.js';
+import { EmptyNote, PageHead, StatusChip } from '../components/ui';
 
 export const dynamic = 'force-dynamic';
+export const metadata = { title: 'Companies' };
 
 type Search = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v) || undefined;
@@ -25,10 +27,24 @@ function href(search: Search, patch: Record<string, string | number | undefined>
   return qs ? `/leads?${qs}` : '/leads';
 }
 
-export default async function LeadsPage({ searchParams }: { searchParams: Promise<Search> }) {
+const SORT_LABELS: Record<LeadSort, string> = {
+  attention: 'Needs you first',
+  priority: 'Priority',
+  score: 'Score',
+  research: 'Least researched',
+  next_action: 'Next step due',
+  company: 'Name',
+  target: 'Number',
+};
+
+/**
+ * COMPANIES — every company, where it stands, and what is next (docs/OPERATOR_EXPERIENCE.md §4.2). The status is the
+ * operator label derived on the server; filtering, sorting and paging all happen on the server too.
+ */
+export default async function CompaniesPage({ searchParams }: { searchParams: Promise<Search> }) {
   await requirePermission('lead.view');
   const search = await searchParams;
-
+  const sort = (LEAD_SORTS as readonly string[]).includes(one(search.sort) ?? '') ? (one(search.sort) as LeadSort) : 'attention';
   const filters: LeadFilters = {
     q: one(search.q),
     archetype: one(search.archetype),
@@ -37,66 +53,48 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
     researchState: one(search.state),
     priority: one(search.priority),
     contactability: one(search.contact),
-    suppressed: one(search.suppressed) as LeadFilters['suppressed'],
-    pipeline: one(search.pipeline),
-    sort: (LEAD_SORTS as readonly string[]).includes(one(search.sort) ?? '') ? (one(search.sort) as LeadSort) : 'priority',
+    status: one(search.status),
+    sort,
     page: Number(one(search.page)) || 1,
   };
-
-  const result = await listLeads(filters);
+  const result = await listLeads(filters, await requestSnapshot());
+  const filtered = !!(filters.q || filters.country || filters.priority || filters.status || filters.researchState || filters.contactability || filters.archetype);
 
   return (
     <>
-      <div className="row between" style={{ marginBottom: 12 }}>
-        <div>
-          <h1>Leads</h1>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>
-            {result.matched} of {result.total} leads · read from {result.snapshot.source === 'GIT_JSON' ? 'committed JSON' : 'Postgres'}
-          </p>
-        </div>
-      </div>
+      <PageHead label={filtered ? `${result.matched} of ${result.total}` : `${result.total} companies`} title="Companies" />
 
-      {/* ── STREAMLINED OPERATOR FILTER BAR ──────────────────────────────── */}
-      <form className="filters" method="get" action="/leads" style={{ marginBottom: 16 }}>
-        <label>
+      <form className="filters" method="get" action="/leads" role="search">
+        <label className="grow">
           Search
-          <input
-            type="search"
-            name="q"
-            defaultValue={filters.q ?? ''}
-            placeholder="Company, city, target..."
-            style={{ width: '210px' }}
-          />
+          <input type="search" name="q" defaultValue={filters.q ?? ''} placeholder="Name, city, country or number" />
         </label>
-
         <label>
           Status
-          <select name="state" defaultValue={filters.researchState ?? ''}>
-            <option value="">All statuses</option>
-            {result.facets.researchStates.map(s => (
-              <option key={s.value} value={s.value}>
-                {presentStatus(s.value)} ({s.count})
+          <select name="status" defaultValue={filters.status ?? ''}>
+            <option value="">Any status</option>
+            {STATUS_FILTERS.map(s => (
+              <option key={s.key} value={s.key}>
+                {s.label}
               </option>
             ))}
           </select>
         </label>
-
         <label>
-          Tier
+          Priority
           <select name="priority" defaultValue={filters.priority ?? ''}>
-            <option value="">All tiers</option>
+            <option value="">Any priority</option>
             {result.facets.priorities.map(p => (
               <option key={p.value} value={p.value}>
-                {p.value} ({p.count})
+                {p.value === 'UNSCORED' ? 'Not scored' : p.value} ({p.count})
               </option>
             ))}
           </select>
         </label>
-
         <label>
-          Geography
+          Country
           <select name="country" defaultValue={filters.country ?? ''}>
-            <option value="">All geographies</option>
+            <option value="">Anywhere</option>
             {result.facets.countries.map(c => (
               <option key={c.value} value={c.value}>
                 {c.value} ({c.count})
@@ -104,150 +102,87 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             ))}
           </select>
         </label>
-
         <label>
-          Contact route
-          <select name="contact" defaultValue={filters.contactability ?? ''}>
-            <option value="">All routes</option>
-            <option value="callable">Callable (verified phone)</option>
-            <option value="emailable">Direct email</option>
-            <option value="none">No usable route</option>
+          Order
+          <select name="sort" defaultValue={sort}>
+            {LEAD_SORTS.map(s => (
+              <option key={s} value={s}>
+                {SORT_LABELS[s]}
+              </option>
+            ))}
           </select>
         </label>
-
-        <label>
-          Sort
-          <select name="sort" defaultValue={filters.sort}>
-            <option value="priority">Priority</option>
-            <option value="score">Score</option>
-            <option value="research">Least researched</option>
-            <option value="next_action">Next action due</option>
-            <option value="company">Company</option>
-            <option value="target">Target number</option>
-          </select>
-        </label>
-
-        <button type="submit">Filter</button>
-        <Link href="/leads" className="badge ghost" style={{ padding: '7px 12px', textDecoration: 'none' }}>
-          Reset
-        </Link>
+        <button type="submit">Show</button>
+        {filtered ? (
+          <Link className="small" href="/leads">
+            Clear
+          </Link>
+        ) : null}
       </form>
 
-      {/* ── SIMPLIFIED OPERATOR LEAD TABLE ───────────────────────────────── */}
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: '80px' }}>Target</th>
-              <th>Company</th>
-              <th>Segment</th>
-              <th>Status</th>
-              <th>Tier</th>
-              <th>Contact route</th>
-              <th>Next action</th>
-              <th style={{ textAlign: 'right' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.rows.map(r => {
-              const humanStatus = r.suppressed ? 'Do not contact' : presentStatus(r.researchState);
-              const tone = r.suppressed ? 'bad' : presentTone(r.researchState);
-
-              return (
+      {result.rows.length === 0 ? (
+        <EmptyNote title="No companies match these filters." action={{ href: '/leads', label: 'Clear filters' }} />
+      ) : (
+        <div className="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Where it stands</th>
+                <th>Priority</th>
+                <th>Next step</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.rows.map(r => (
                 <tr key={r.leadId}>
-                  <td className="small" style={{ fontFamily: 'var(--mono)' }}>
-                    <Link href={`/leads/${r.targetNumber}`} style={{ textDecoration: 'none', fontWeight: 600 }}>
-                      {r.targetNumber}
+                  <td className="wrap" style={{ minWidth: 220 }}>
+                    <Link href={`/leads/${r.targetNumber}`} style={{ fontWeight: 600, textDecoration: 'none' }}>
+                      {r.company}
                     </Link>
-                  </td>
-
-                  <td>
-                    <div>
-                      <Link href={`/leads/${r.targetNumber}`} style={{ textDecoration: 'none', fontWeight: 550 }}>
-                        {r.company}
-                      </Link>
+                    <div className="small muted">
+                      {[r.city, r.country].filter(Boolean).join(', ')} · {archetypeById(r.archetype)?.name ?? r.archetype}
+                      <span className="mono"> · #{r.targetNumber}</span>
                     </div>
                   </td>
-
-                  <td className="small muted">
-                    {r.archetype}
-                    {r.vertical ? ` · ${r.vertical}` : ''}
-                    <div style={{ fontSize: '11px' }}>
-                      {r.city ? `${r.city}, ` : ''}{r.country}
+                  <td className="wrap" style={{ minWidth: 240 }}>
+                    <StatusChip status={r.status} />
+                    <div className="small muted" style={{ marginTop: 4 }}>
+                      {r.status.sentence}
                     </div>
                   </td>
-
-                  <td>
-                    <StatusBadge label={humanStatus} tone={tone} />
-                  </td>
-
-                  <td>
-                    <span className="badge">{r.priorityLabel}</span>
-                  </td>
-
-                  <td className="small">
-                    {r.suppressed ? (
-                      <span className="badge bad">Blocked</span>
-                    ) : r.contactability.callable || r.contactability.emailable ? (
-                      <span className="badge ok">{r.contactability.summary}</span>
-                    ) : (
-                      <span className="badge warn">Missing route</span>
-                    )}
-                  </td>
-
-                  <td className="wrap small">
-                    <div>{r.nextAction ?? <span className="muted">—</span>}</div>
-                    {r.nextActionDate ? (
-                      <div className="muted" style={{ fontSize: '11px', marginTop: 2 }}>
-                        Due: {r.nextActionDate}
+                  <td className="nowrap">
+                    <span className="mono small">{r.priority === 'UNSCORED' ? '—' : r.priority}</span>
+                    {r.priorityConfidence === 'PROVISIONAL' ? (
+                      <div className="small muted" title="The ranking can change once research is complete.">
+                        provisional
                       </div>
                     ) : null}
                   </td>
-
-                  <td style={{ textAlign: 'right' }}>
-                    <Link
-                      href={`/leads/${r.targetNumber}`}
-                      className="badge ghost"
-                      style={{ textDecoration: 'none', padding: '4px 8px' }}
-                    >
-                      View →
-                    </Link>
+                  <td className="wrap small">
+                    {r.nextAction ?? <span className="muted">—</span>}
+                    {r.nextActionDate ? <div className="muted">Due {dayLabel(r.nextActionDate)}</div> : null}
                   </td>
                 </tr>
-              );
-            })}
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-            {result.rows.length === 0 ? (
-              <tr>
-                <td colSpan={8} style={{ padding: 0 }}>
-                  <EmptyState
-                    title="No leads match your search."
-                    description="Try adjusting or resetting your filters to see more results."
-                    action={
-                      <Link href="/leads" className="badge ghost" style={{ textDecoration: 'none' }}>
-                        Reset filters
-                      </Link>
-                    }
-                  />
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ── PAGINATION ──────────────────────────────────────────────────── */}
-      <div className="pager" style={{ marginTop: 16 }}>
-        <Link href={href(search, { page: result.page - 1 })} aria-disabled={result.page <= 1}>
-          ← Previous
-        </Link>
-        <span className="muted small">
-          Page {result.page} of {result.pages}
-        </span>
-        <Link href={href(search, { page: result.page + 1 })} aria-disabled={result.page >= result.pages}>
-          Next →
-        </Link>
-      </div>
+      {result.pages > 1 ? (
+        <nav className="pager" aria-label="Pages">
+          <Link href={href(search, { page: result.page - 1 })} aria-disabled={result.page <= 1}>
+            ← Previous
+          </Link>
+          <span className="muted small">
+            Page {result.page} of {result.pages}
+          </span>
+          <Link href={href(search, { page: result.page + 1 })} aria-disabled={result.page >= result.pages}>
+            Next →
+          </Link>
+        </nav>
+      ) : null}
     </>
   );
 }
