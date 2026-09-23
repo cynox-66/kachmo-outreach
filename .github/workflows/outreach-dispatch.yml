@@ -14,13 +14,29 @@ on:
   # three cron lines below, in a reviewed commit on main.
   #
   schedule:
-    # Monday through Thursday (1-4):
-    # 08:00 UTC -> 09:00 AM London (UK) / 10:00 AM Berlin (EU)
-    - cron: '0 8 * * 1-4'
-    # 13:30 UTC -> 09:30 AM New York (EST) / Toronto (EDT)
-    - cron: '30 13 * * 1-4'
-    # 16:30 UTC -> 09:30 AM San Francisco (PST) / Los Angeles
-    - cron: '30 16 * * 1-4'
+    # Monday through Thursday (1-4).
+    # Staggered on off-peak minutes across local morning windows (07:30–11:30 local)
+    # to protect against GitHub Actions runner start delays:
+    
+    # ── UK / Europe Window (07:30–11:30 BST / CEST) ──
+    # 07:17 BST / 08:17 CEST
+    - cron: '17 6 * * 1-4'
+    # 08:47 BST / 09:47 CEST
+    - cron: '47 7 * * 1-4'
+    # 10:17 BST / 11:17 CEST
+    - cron: '17 9 * * 1-4'
+
+    # ── US East Window (07:30–11:30 EDT) ──
+    # 08:17 EDT
+    - cron: '17 12 * * 1-4'
+    # 09:47 EDT
+    - cron: '47 13 * * 1-4'
+
+    # ── US West Window (07:30–11:30 PDT) ──
+    # 08:17 PDT
+    - cron: '17 15 * * 1-4'
+    # 09:47 PDT
+    - cron: '47 16 * * 1-4'
   # ==========================================================================
   workflow_dispatch:
     inputs:

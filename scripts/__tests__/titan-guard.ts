@@ -279,10 +279,18 @@ group('Automated dispatch is paused (POST_CUTOVER suppression gap)');
   if (marker.paused) {
     assert(/^[ \t]*#[ \t]*schedule:/m.test(workflow), 'the schedule block is present but commented out, so resuming is a one-line change');
   } else {
-    // Resumed: exactly the three documented windows, nothing added, nothing left half-commented.
-    const EXPECTED_CRON = ['0 8 * * 1-4', '30 13 * * 1-4', '30 16 * * 1-4'];
+    // Resumed: staggered off-peak windows covering UK/Europe, US East and US West.
+    const EXPECTED_CRON = [
+      '17 6 * * 1-4',
+      '47 7 * * 1-4',
+      '17 9 * * 1-4',
+      '17 12 * * 1-4',
+      '47 13 * * 1-4',
+      '17 15 * * 1-4',
+      '47 16 * * 1-4',
+    ];
     const cronExprs = activeCron.map(l => l.replace(/^\s*-\s*cron:\s*'(.*)'\s*$/, '$1'));
-    assert(JSON.stringify(cronExprs) === JSON.stringify(EXPECTED_CRON), 'unpaused: exactly the three documented cron schedules are active', cronExprs);
+    assert(JSON.stringify(cronExprs) === JSON.stringify(EXPECTED_CRON), 'unpaused: exactly the documented staggered cron schedules are active', cronExprs);
     assert(workflow.split('\n').filter(l => /cron:/.test(l)).length === EXPECTED_CRON.length, 'unpaused: no other cron line exists, commented or not');
     assert(/^  schedule:[ \t]*$/m.test(workflow) && !/^[ \t]*#[ \t]*schedule:/m.test(workflow), 'unpaused: the schedule trigger is active under on:');
   }

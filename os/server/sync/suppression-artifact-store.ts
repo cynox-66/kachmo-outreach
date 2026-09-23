@@ -37,9 +37,23 @@ export interface ArtifactRead {
 }
 
 export function readSuppressionArtifact(root: string = REPO_ROOT): ArtifactRead {
-  const path = join(root, SUPPRESSION_ARTIFACT);
-  if (!existsSync(path)) return { raw: null, entries: [], sha: ABSENT_SHA, path };
-  const raw = readFileSync(path, 'utf-8');
+  let targetPath = join(root, SUPPRESSION_ARTIFACT);
+  if (!existsSync(targetPath)) {
+    if (root === REPO_ROOT) {
+      const fallbackPath1 = resolve(process.cwd(), '..', SUPPRESSION_ARTIFACT);
+      const fallbackPath2 = resolve(process.cwd(), SUPPRESSION_ARTIFACT);
+      if (existsSync(fallbackPath1)) {
+        targetPath = fallbackPath1;
+      } else if (existsSync(fallbackPath2)) {
+        targetPath = fallbackPath2;
+      } else {
+        return { raw: null, entries: [], sha: ABSENT_SHA, path: targetPath };
+      }
+    } else {
+      return { raw: null, entries: [], sha: ABSENT_SHA, path: targetPath };
+    }
+  }
+  const raw = readFileSync(targetPath, 'utf-8');
   let entries: SuppressionEntry[] = [];
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -48,7 +62,7 @@ export function readSuppressionArtifact(root: string = REPO_ROOT): ArtifactRead 
     // Left empty on purpose: the verifier classifies malformed artifacts. Returning [] here would let a caller
     // that skipped verification treat a corrupt file as "no suppressions", so every caller must verify first.
   }
-  return { raw, entries, sha: sha256(raw), path };
+  return { raw, entries, sha: sha256(raw), path: targetPath };
 }
 
 export class ArtifactConflictError extends Error {

@@ -3,8 +3,10 @@ import { requirePermission } from '@/server/auth/current-actor';
 import { requestSnapshot } from '@/server/services/snapshot';
 import { getEmailLedger } from '@/server/services/operations';
 import { senderStatus } from '@/server/services/sender';
+import { checkDispatchConfiguration } from '@/server/services/dispatch';
 import { dayLabel, emailDates, ledgerStatusLabel, relativeDays } from '@/server/services/operator';
 import { AsOf, Banner, Chip, Disclosure, EmailPreview, EmptyNote, PageHead } from '../components/ui';
+import { DispatchQueueButton } from '../components/DispatchQueueButton';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Emails' };
@@ -13,17 +15,19 @@ const REPLIED = new Set(['REPLIED_WARM', 'REPLIED_NOT_NOW', 'REPLIED_NO', 'CALL_
 const SENT = new Set(['SENT', 'FOLLOW_UP_DUE', 'FOLLOWED_UP']);
 
 /**
- * EMAILS — Read-only (docs/OPERATOR_EXPERIENCE.md §4.4).
+ * EMAILS (docs/OPERATOR_EXPERIENCE.md §4.4).
  *
  * Titan owns email in every phase. The automatic sender (GitHub Actions) and the studio inbox send; this page shows
  * what is scheduled — including exactly what it says — whether the sender is actually getting it out, what is due and
- * what has been sent. There is no form, no send control, no mail library and no SMTP credential anywhere in this app.
+ * what has been sent. Owners and Admins can trigger the cloud dispatch runner directly via GitHub Actions.
  */
 export default async function EmailsPage() {
   const actor = await requirePermission('email.view_ledger');
   const snap = await requestSnapshot();
   const v = await getEmailLedger(actor, snap);
   const sender = senderStatus(snap, actor, v.today);
+  const dispatchConfig = await checkDispatchConfiguration();
+  const canDispatch = (actor.roles.includes('OWNER') || actor.roles.includes('ADMIN')) && actor.permissions.has('outreach.email');
 
   const due = v.rows.filter(r => r.followUpOverdue && !r.alreadyFollowedUp);
   const replied = v.rows.filter(r => REPLIED.has(r.status));
@@ -35,7 +39,7 @@ export default async function EmailsPage() {
       <PageHead
         label="Read-only · sent from the studio inbox"
         title="Emails"
-        sub="What’s scheduled, what went out, and what’s due. The automatic sender and the studio inbox (Titan) send email; this page can’t send, change or cancel anything."
+        sub="What’s scheduled, what went out, and what’s due. The cloud runner (Titan) automatically dispatches scheduled emails during recipient morning windows."
         aside={<AsOf iso={sender.asOf} />}
       />
 
@@ -57,9 +61,26 @@ export default async function EmailsPage() {
         </div>
       )}
 
-      <div className="group-head">
-        <h2>Scheduled</h2>
-        <span className="label">{sender.queued.length}</span>
+      <div className="group-head row between" style={{ alignItems: 'flex-end', marginTop: 'var(--s6)', marginBottom: 'var(--s3)' }}>
+        <div className="row" style={{ gap: 'var(--s2)', alignItems: 'baseline' }}>
+          <h2 style={{ margin: 0 }}>Scheduled</h2>
+          <span className="label">{sender.queued.length}</span>
+        </div>
+        {sender.queued.length > 0 && canDispatch && (
+          <DispatchQueueButton
+            queuedCount={sender.queued.length}
+            targets={sender.queued.map(q => ({
+              targetNumber: q.targetNumber,
+              company: q.company,
+              city: q.city,
+              country: q.country,
+            }))}
+            configured={dispatchConfig.configured}
+            repo={dispatchConfig.repo}
+            workflow={dispatchConfig.workflow}
+            canDispatch={canDispatch}
+          />
+        )}
       </div>
       {sender.queued.length ? (
         <ul className="rows">
